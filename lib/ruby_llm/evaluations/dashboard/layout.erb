@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= ui.h(title) %> · RubyLLM Evaluations</title>
+  <link rel="stylesheet" href="<%= ui.h(ui.path("/assets/dashboard.css")) %>">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header"><div class="header-inner">
+    <a class="brand" href="<%= ui.h(ui.path("/")) %>" aria-label="RubyLLM Evaluations home"><span class="brand-mark" aria-hidden="true">R</span><span>RubyLLM <strong>Evaluations</strong></span></a>
+    <nav aria-label="Main navigation"><a href="<%= ui.h(ui.path("/")) %>">Run history</a><span class="local-badge">Local workspace</span></nav>
+  </div></header>
+  <main id="main" tabindex="-1"><%= content %></main>
+  <footer class="site-footer"><span>Evaluations as code. Evidence over intuition.</span><span>Read-only · PostgreSQL history · No external assets</span></footer>
+</body>
+</html>

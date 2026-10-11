@@ -1,0 +1,20 @@
+# frozen_string_literal: true
+
+require_relative "lib/ruby_llm/evaluations/version"
+
+Gem::Specification.new do |spec|
+  spec.name = "ruby_llm-evaluations"
+  spec.version = RubyLLM::Evaluations::VERSION
+  spec.authors = ["RubyLLM Evaluations contributors"]
+  spec.summary = "Code-defined agent evaluations with persistent history, regression reports, and a dashboard"
+  spec.description = "Evaluate any callable Ruby LLM agent with semantic, relevance, and action checks, persist runs in PostgreSQL through ActiveRecord, and inspect regressions in a local dashboard."
+  spec.license = "MIT"
+  spec.required_ruby_version = ">= 3.2"
+  spec.files = Dir["lib/**/*", "exe/*", "README.md", "CHANGELOG.md", "LICENSE", "examples/**/*", "docs/images/*.png"]
+  spec.bindir = "exe"
+  spec.executables = ["ruby_llm-evaluations"]
+  spec.require_paths = ["lib"]
+  spec.add_dependency "activerecord", ">= 7.1", "< 9"
+  spec.add_dependency "pg", ">= 1.5", "< 2"
+  spec.add_dependency "webrick", "~> 1.8"
+end

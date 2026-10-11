@@ -1,0 +1,1 @@
+Read `.agents/AGENTS.md` before making changes. All shared project directives, including integration tests always, live in that vendor-agnostic harness. Specialist profiles are in `.agents/agents/`; reusable workflows are in `.agents/skills/`. Use those documents rather than duplicating or overriding their policy here.

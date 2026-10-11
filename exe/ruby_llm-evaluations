@@ -1,0 +1,5 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "ruby_llm/evaluations/cli"
+exit RubyLLM::Evaluations::CLI.new.start(ARGV)
