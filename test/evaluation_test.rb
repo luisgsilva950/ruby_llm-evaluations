@@ -31,7 +31,7 @@ class EvaluationTest < Minitest::Test
     end
     assert_equal %w[error passed], run["cases"].map { |item| item["status"] }
     assert_equal({ "class" => "RuntimeError", "message" => "provider unavailable" }, run["cases"][0]["error"])
-    assert_equal({ "answer" => 1.0 }, run["cases"][0]["criteria"])
+    assert_equal({ "answer" => 1.0 }, run["cases"][0]["minimum_scores"])
     assert_empty run["cases"][0]["metrics"]
     assert_equal 0.5, run["summary"]["pass_rate"]
     assert_equal 0.5, run["summary"]["score"]
@@ -121,11 +121,11 @@ class EvaluationTest < Minitest::Test
     assert_equal build.call({ prompt: "hello", count: 2 }).digest, build.call({ count: 2, prompt: "hello" }).digest
   end
 
-  def test_fingerprint_includes_question_criteria_metadata_and_actions
-    build = lambda do |criteria, metadata, actions|
+  def test_fingerprint_includes_question_minimum_scores_metadata_and_actions
+    build = lambda do |minimum_scores, metadata, actions|
       E.define("identity", agent: ->(value) { value }) do
         evaluate(:quality) { true }
-        question "prompt", expected_answer: "answer", criteria: criteria, metadata: metadata, expected_actions: actions
+        question "prompt", expected_answer: "answer", minimum_scores: minimum_scores, metadata: metadata, expected_actions: actions
       end
     end
     base = build.call({ quality: 0.9 }, { important_facts: ["fact"] }, []).digest
@@ -148,6 +148,6 @@ class EvaluationTest < Minitest::Test
     assert_equal 0, run.summary["passed"]
     assert_equal 1, run.summary["not_evaluated"]
     assert_equal 0, run.summary["evaluated_cases"]
-    assert_equal({ "semantic_accuracy" => 0.9, "answer_relevancy" => 0.9 }, item.criteria)
+    assert_equal({ "semantic_accuracy" => 0.9, "answer_relevancy" => 0.9 }, item.minimum_scores)
   end
 end

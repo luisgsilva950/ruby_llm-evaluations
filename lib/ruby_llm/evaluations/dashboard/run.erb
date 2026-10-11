@@ -30,8 +30,8 @@
   <div class="case-telemetry"><span><%= ui.duration(item["duration_ms"]) %></span><span><%= item["input_tokens"].nil? ? "—" : item["input_tokens"] %> input tokens</span><span><%= item["output_tokens"].nil? ? "—" : item["output_tokens"] %> output tokens</span><span><%= ui.cost(item["cost"]) %></span></div>
   <% if item["error"] %><div class="error-alert" role="note"><strong><%= ui.h(item["error"]["class"]) %></strong><pre><%= ui.h(item["error"]["message"]) %></pre></div><% end %>
   <div class="payload-grid"><section><h4>Question</h4><pre class="payload"><%= ui.h(ui.pretty(item["question"])) %></pre></section><section><h4>Expected answer</h4><pre class="payload"><%= ui.h(ui.pretty(item["expected_answer"])) %></pre></section><section class="output-payload"><h4>Agent output</h4><pre class="payload"><%= ui.h(ui.pretty(item["output"])) %></pre></section></div>
-  <details class="metadata-details"><summary>Criteria</summary><pre class="payload"><%= ui.h(ui.pretty(item["criteria"])) %></pre></details>
-  <% uncalculated = item.fetch("criteria", {}).keys - item["metrics"].map { |metric| metric["name"] } %>
+  <details class="metadata-details"><summary>Minimum passing scores</summary><pre class="payload"><%= ui.h(ui.pretty(item["minimum_scores"])) %></pre></details>
+  <% uncalculated = item.fetch("minimum_scores", {}).keys - item["metrics"].map { |metric| metric["name"] } %>
   <% unless uncalculated.empty? %><p class="muted">Not calculated: <%= ui.h(uncalculated.join(", ")) %></p><% end %>
   <div class="table-scroll evaluation-table" tabindex="0" role="region" aria-label="Evaluations for <%= ui.h(item["name"]) %>">
     <table><caption>Metric assessments</caption><thead><tr><th scope="col">Evaluator</th><th scope="col">Score</th><th scope="col">Threshold</th><th scope="col">Result</th><th scope="col">Evidence</th></tr></thead><tbody>

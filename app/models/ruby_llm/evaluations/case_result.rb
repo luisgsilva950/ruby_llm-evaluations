@@ -19,7 +19,7 @@ module RubyLLM
       def snapshot
         Data.json_value(
           id: case_id, name: name, question: question, expected_answer: expected_answer,
-          expected_actions: expected_actions, criteria: criteria,
+          expected_actions: expected_actions, minimum_scores: minimum_scores,
           metadata: metadata, output: output, status: status, duration_ms: duration_ms,
           input_tokens: input_tokens, output_tokens: output_tokens, cost: cost, actions: actions,
           response_metadata: response_metadata, error: error_details,
@@ -30,7 +30,7 @@ module RubyLLM
       private
 
       def validate_json
-        normalize_json_attributes(:question, :expected_answer, :expected_actions, :criteria, :metadata,
+        normalize_json_attributes(:question, :expected_answer, :expected_actions, :minimum_scores, :metadata,
                                   :output, :actions, :response_metadata, :error_details)
         errors.add(:metadata, "must be a hash") unless metadata.is_a?(Hash)
       end

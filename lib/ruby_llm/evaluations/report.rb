@@ -220,7 +220,7 @@ module RubyLLM
           result << ["Case: #{item.fetch('name')}", {
             "ID" => item.fetch("id"), "Status" => item.fetch("status"),
             "Question" => item["question"], "Expected answer" => item["expected_answer"], "Output" => item["output"],
-            "Criteria" => item["criteria"],
+            "Minimum passing scores" => item["minimum_scores"],
             "Expected actions (ordered)" => item["expected_actions"] || "Unavailable — expected actions not specified",
             "Observed actions (ordered)" => item["actions"] || "Unavailable — action instrumentation missing",
             "Response metadata" => item["response_metadata"].nil? ? "Unavailable — response metadata not reported" : item["response_metadata"],

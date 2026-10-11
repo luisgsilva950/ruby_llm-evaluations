@@ -7,7 +7,7 @@ module RubyLLM
     class Context
       extend Forwardable
       attr_reader :question_data, :response, :judge
-      def_delegators :@question_data, :id, :name, :question, :expected_answer, :expected_actions, :criteria, :metadata
+      def_delegators :@question_data, :id, :name, :question, :expected_answer, :expected_actions, :minimum_scores, :metadata
 
       def initialize(question_data, response, judge: nil)
         @question_data = question_data

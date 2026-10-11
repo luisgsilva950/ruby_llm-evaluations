@@ -16,7 +16,7 @@ class ModelReportTest < Minitest::Test
       summary: { cases: 1, passed: passed ? 1 : 0, failed: passed ? 0 : 1, errors: 0,
         pass_rate: passed ? 1.0 : 0.0, score: score, duration_ms: 12.5, input_tokens: 2, output_tokens: 3, cost: 0.004 },
       case_results_attributes: [{ case_id: "answer", name: "Answers accurately", position: 0,
-        question: { prompt: "What is two plus two?" }, expected_answer: "4", criteria: { accuracy: 0.8 }, metadata: {}, output: "4",
+        question: { prompt: "What is two plus two?" }, expected_answer: "4", minimum_scores: { accuracy: 0.8 }, metadata: {}, output: "4",
         status: passed ? "passed" : "failed", duration_ms: 12.5, input_tokens: 2, output_tokens: 3, cost: 0.004,
         metric_results_attributes: [{ name: "accuracy", position: 0, score: score, threshold: 0.8, passed: passed, reason: "Checked answer" }] }] }
     yield attributes if block_given?

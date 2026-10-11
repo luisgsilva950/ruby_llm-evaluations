@@ -32,10 +32,12 @@ RubyLLM::Evaluations.define("Customer support (offline exact match)", agent: Off
                             agent_name: "SupportAgent", version: "1") do
   evaluate :exact_match, using: RubyLLM::Evaluations::Evaluators.exact_match
   evaluate :action_group, using: RubyLLM::Evaluations::Evaluators.action_group
+  # minimum_scores applies absolute inclusive thresholds on every run, including the first.
+  # Previous-run regression comparison is separate and requires a compatible definition.
 
   question "How long do I have to return an item?",
            expected_answer: "You can return it within 30 days.",
-           criteria: { exact_match: 1.0, action_group: 1.0 },
+           minimum_scores: { exact_match: 1.0, action_group: 1.0 },
            metadata: { important_facts: ["The return deadline is 30 days."] },
            expected_actions: [{ group: "support", name: "lookup_answer",
                                 arguments: { question: "How long do I have to return an item?" } }]

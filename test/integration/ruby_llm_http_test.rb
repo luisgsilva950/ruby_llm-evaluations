@@ -167,13 +167,13 @@ class RubyLLMHTTPTest < Minitest::Test
     assert_includes report.to_html, "JSON::ParserError"
   end
   # Scripted HTTP judgments prove the real provider protocol, not model reasoning.
-  def test_question_criteria_select_metrics_thresholds_and_transport_important_facts
+  def test_question_minimum_scores_select_metrics_and_transport_important_facts
     agent, judge = @agent, @judge
     definition = E.define("question metrics", agent: agent, judge: judge) do
       evaluate(:custom) { |_output, context| context.metadata[:important_facts].include?("Books have a 30-day deadline.") }
-      question "Book return?", expected_answer: "30 days", criteria: { semantic_accuracy: 0.96, custom: 1 },
+      question "Book return?", expected_answer: "30 days", minimum_scores: { semantic_accuracy: 0.96, custom: 1 },
         metadata: { important_facts: ["Books have a 30-day deadline."] }
-      question "Another book return?", expected_answer: "30 days", criteria: { answer_relevancy: 0.8 },
+      question "Another book return?", expected_answer: "30 days", minimum_scores: { answer_relevancy: 0.8 },
         metadata: { important_facts: ["Books have a 30-day deadline."] }
     end
     run = E.run(definition)
@@ -197,7 +197,7 @@ class RubyLLMHTTPTest < Minitest::Test
     definition = E.define("unjudged tools", agent: @agent) do
       evaluate :custom_judge, using: E::Evaluators.llm_judge(rubric: "Verify the return deadline")
       question "Can I return my book?", expected_answer: "30 days",
-        criteria: { semantic_accuracy: 0.9, answer_relevancy: 0.9, custom_judge: 0.9, action_group: 1 },
+        minimum_scores: { semantic_accuracy: 0.9, answer_relevancy: 0.9, custom_judge: 0.9, action_group: 1 },
         expected_actions: [{ group: "returns", name: "return_policy", arguments: { product: "book" } }]
     end
     run = E.run(definition)
@@ -211,7 +211,7 @@ class RubyLLMHTTPTest < Minitest::Test
     assert_equal item.expected_actions, item.actions
   end
 
-  def test_no_judge_and_only_llm_criteria_has_no_quality_or_assessments
+  def test_no_judge_and_only_llm_minimum_scores_has_no_quality_or_assessments
     definition = E.define("unjudged answers", agent: @agent) do
       question "Can I return my book?", expected_answer: "30 days"
     end
@@ -236,7 +236,7 @@ class RubyLLMHTTPTest < Minitest::Test
      { score: "1", reason: "invalid" }, { score: 1, reason: " " }].each do |answer|
       @server.judge_failures = [answer]
       definition = E.define("invalid scoring", agent: @agent, judge: @judge) do
-        question "Can I return my book?", expected_answer: "30 days", criteria: { semantic_accuracy: 0.9 }
+        question "Can I return my book?", expected_answer: "30 days", minimum_scores: { semantic_accuracy: 0.9 }
       end
       run = E.run(definition)
       metric = run.case_results.first.metric_results.first

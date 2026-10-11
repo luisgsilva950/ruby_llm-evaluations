@@ -14,7 +14,7 @@ require "ruby_llm/evaluations"
 suite = RubyLLM::Evaluations.define("Customer support", agent: support_agent, judge: SupportJudgeAgent) do
   question "How long do I have to return an item?",
            expected_answer: "You can return it within 30 days.",
-           criteria: { semantic_accuracy: 0.9, answer_relevancy: 0.9 },
+           minimum_scores: { semantic_accuracy: 0.9, answer_relevancy: 0.9 },
            metadata: { important_facts: ["The return deadline is 30 days."] }
 end
 ~~~
@@ -22,13 +22,15 @@ end
 | Spec field | Meaning |
 | --- | --- |
 | `question` | The actual request sent to your agent. |
-| `expected_answer` | The reference answer for factual comparison; paraphrases can pass semantic scoring. |
-| `criteria` | Which metrics to compute and their minimum passing scores, from 0 to 1. |
+| `expected_answer` | A reference answer string, not a numeric score; paraphrases can pass semantic scoring. |
+| `minimum_scores` | A map of metric names to absolute, inclusive numeric passing thresholds from 0 to 1, applied on every run, including the first. |
 | `metadata` | Evaluation context, such as the essential facts that the judge must check. |
+
+`minimum_scores: { semantic_accuracy: 0.9 }` means that the calculated semantic-accuracy score must be at least 0.9, even on the first run when no baseline exists. It does not compare against a previous run, and 0.9 is not a promise of 90% string similarity with expected_answer: the semantic judge scores factual meaning against that reference.
 
 The library creates the selected metrics per question. Semantic accuracy measures factual meaning, accepting paraphrases while penalizing contradictions, unsupported additions, and omitted essential facts. Answer relevancy independently measures responsiveness: a wrong but on-topic answer can be relevant. Metadata is supplied as untrusted evaluation context; important_facts identifies factual priorities, not executable prompt instructions.
 
-Without explicit suite-level evaluate definitions, omitted criteria defaults to semantic_accuracy and answer_relevancy at 0.9. These metrics run only when a judge is supplied. With no judge, LLM-as-judge metrics are not calculated; deterministic and action-group checks still run. No substitute or fabricated score is provided. Explicit criteria chooses named standard/custom metrics per question. Thresholds are inclusive.
+Without explicit suite-level evaluate definitions, omitted minimum_scores defaults to semantic_accuracy and answer_relevancy at 0.9. These metrics run only when a judge is supplied. With no judge, LLM-as-judge metrics are not calculated; deterministic and action-group checks still run. No substitute or fabricated score is provided. Explicit minimum_scores chooses named standard/custom metrics per question. Thresholds are inclusive.
 
 Questions accept optional name:, id:, and expected_actions:. Names default to question text (or a generated label for structured questions); IDs default to names and must be unique. Question/reference/metadata/output data must be JSON-portable. Symbol keys/values retain Ruby distinctions in fingerprints and agent calls; persisted JSON normalizes them. Unsupported objects fail explicitly. Specs execute trusted Ruby, not sandboxed code, and must return a Suite; define returns one.
 
@@ -48,12 +50,12 @@ suite = RubyLLM::Evaluations::Suite.new(
   "Customer support", agent: support_agent, judge: SupportJudgeAgent
 )
 suite.question "How long do I have to return an item?", expected_answer: "30 days",
-               criteria: { semantic_accuracy: 0.9, answer_relevancy: 0.9 }
+               minimum_scores: { semantic_accuracy: 0.9, answer_relevancy: 0.9 }
 ~~~
 
 The define DSL forwards judge: to this same constructor. Provider credentials use your application's normal RubyLLM configuration; no separate evaluation-judge configuration is needed. Supplying a judge makes real model requests when the suite runs and can incur charges.
 
-Omit judge: to skip semantic_accuracy, answer_relevancy, and custom llm_judge checks. Declared criteria and agent outputs are still persisted. A question with no calculated metrics is not_evaluated, not passed; score and pass rate are null when no questions were evaluated. Mixed suites calculate quality only from executed metrics and evaluated questions. A different calculated metric set changes the fingerprint, so runs that skipped LLM metrics are never automatic regression baselines for runs that calculated them.
+Omit judge: to skip semantic_accuracy, answer_relevancy, and custom llm_judge checks. Declared minimum_scores and agent outputs are still persisted. A question with no calculated metrics is not_evaluated, not passed; score and pass rate are null when no questions were evaluated. Mixed suites calculate quality only from executed metrics and evaluated questions. A different calculated metric set changes the fingerprint, so runs that skipped LLM metrics are never automatic regression baselines for runs that calculated them.
 
 Judge replies must contain a finite numeric score in [0,1] and a nonempty string reason. Invalid replies and provider failures remain metric errors, never passing defaults. Model judgments are nondeterministic: calibrate thresholds against human-reviewed examples. Marking data untrusted does not eliminate prompt injection.
 
@@ -73,6 +75,8 @@ Install the engine migrations into the host application, then migrate normally:
 bin/rails ruby_llm_evaluations:install:migrations
 bin/rails db:migrate
 ~~~
+
+When upgrading, repeat the install:migrations and db:migrate commands to install and apply new engine migrations; keep existing migrations and history. Standalone users instead run ruby_llm-evaluations db:migrate before their next run.
 
 PostgreSQL is required. Tables are ruby_llm_evaluations_runs, ruby_llm_evaluations_case_results, and ruby_llm_evaluations_metric_results. Existing legacy payload history is migrated, not discarded. There are no Store objects, dynamically allocated models, or separate connection pools. Execution does not establish, migrate, or disconnect the host pool.
 
@@ -125,7 +129,7 @@ RubyLLM::Evaluations.migrate! # Once during database setup, not per run.
 
 ## Custom checks and action traces
 
-Explicit suite-level evaluators remain available for custom scoring and become defaults for questions without criteria:
+Explicit suite-level evaluators remain available for custom scoring and become defaults for questions without minimum_scores:
 
 ~~~ruby
 RubyLLM::Evaluations.define("Concise answers", agent: your_agent) do
@@ -134,17 +138,17 @@ RubyLLM::Evaluations.define("Concise answers", agent: your_agent) do
     RubyLLM::Evaluations::Assessment.new(score: score, reason: "Checked word budget")
   end
   question "Explain returns briefly", expected_answer: "Return within 30 days.",
-           criteria: { conciseness: 0.8 }, metadata: { max_words: 12 }
+           minimum_scores: { conciseness: 0.8 }, metadata: { max_words: 12 }
 end
 ~~~
 
-Evaluators receive (output, context). Context exposes id, name, question, expected_answer, expected_actions, criteria, metadata, question_data, response, and the suite's judge agent class. Return Boolean, a finite score in [0,1], or an Assessment. Deterministic built-ins include exact_match, contains, matches(/pattern/), and valid_json; register them with evaluate(name, using:, threshold:). Evaluators.llm_judge(rubric:) supports custom rubrics and uses the constructor judge; without a judge it is skipped.
+Evaluators receive (output, context). Context exposes id, name, question, expected_answer, expected_actions, minimum_scores, metadata, question_data, response, and the suite's judge agent class. Return Boolean, a finite score in [0,1], or an Assessment. Deterministic built-ins include exact_match, contains, matches(/pattern/), and valid_json; register them with evaluate(name, using:, threshold:). Evaluators.llm_judge(rubric:) supports custom rubrics and uses the constructor judge; without a judge it is skipped.
 
-Select action_group in question criteria and declare the expected invocation trace:
+Select action_group in question minimum_scores and declare the expected invocation trace:
 
 ~~~ruby
 question "Track order 42", expected_answer: "Order 42 has shipped.",
-         criteria: { action_group: 1.0 },
+         minimum_scores: { action_group: 1.0 },
          expected_actions: [{ group: "orders", name: "lookup_order", arguments: { id: 42 } }]
 ~~~
 
@@ -180,11 +184,13 @@ Report#export writes the file itself and returns its path. The extension chooses
 
 Run, CaseResult, and MetricResult records are readonly after persistence through normal ActiveRecord APIs. Runner finishes agent/judge calls before the short atomic save transaction; errors are recorded and other questions/checks continue. Runner.new.run(suite, metadata: {}) is also available.
 
-Baselines are earlier runs matching suite, agent, and typed definition fingerprint, with database-generated sequence breaking timestamp ties. Fingerprints cover question data, expected answers/actions, criteria names/thresholds, metadata, and explicit suite version. **Bump version when changing evaluator implementations, rubrics, or judge configuration**; callable source is not hashed. Keep agent identity stable across revisions and record revision/model/prompt information in run metadata.
+Baselines are earlier runs matching suite, agent, and typed definition fingerprint, with database-generated sequence breaking timestamp ties. Fingerprints cover question data, expected answers/actions, metric names and thresholds in minimum_scores, metadata, and explicit suite version. Changing minimum_scores changes the definition fingerprint, so different threshold sets are not automatically compared. Renaming the API alone preserves existing definition fingerprints and baseline history. **Bump version when changing evaluator implementations, rubrics, or judge configuration**; callable source is not hashed. Keep agent identity stable across revisions and record revision/model/prompt information in run metadata.
 
 A question passes only when at least one metric was calculated and every calculated metric passes without error. With no calculated metrics it is not_evaluated. Case quality averages calculated metric scores (metric errors contribute zero); agent errors yield zero. Run quality and pass rate exclude not-evaluated questions and are null when no questions were evaluated. Completed status means execution finished, not success. Token/cost totals include only reported agent usage, not judge usage; zero totals do not prove zero cost. Response costs are USD for dashboard display.
 
-Regressions include score decreases beyond tolerance, newly failed thresholds, and new errors. Tolerance does not hide new failures/errors. Missing/incompatible explicit baselines are rejected before agent execution; automatic historical baselines never come from the future.
+Regression comparison is separate from minimum-score passing: it compares later observed scores against a previous run of the same definition. Use --fail-on-regression to make regressions fail the CLI gate and --tolerance to allow small score decreases. Regressions include score decreases beyond tolerance, newly failed thresholds, and new errors. Tolerance does not hide new failures/errors. Missing/incompatible explicit baselines are rejected before agent execution; automatic historical baselines never come from the future.
+
+For example, with a semantic-accuracy minimum of 0.9, a previous score of 0.98 and a later score of 0.92 both pass the minimum. The later run nevertheless regresses by 0.06 when tolerance is 0.02, so --fail-on-regression fails the gate. On the first run, the same minimum applies but there is no previous score to compare.
 
 ~~~sh
 ruby_llm-evaluations run your_eval.rb --fail-on-regression --tolerance 0.02

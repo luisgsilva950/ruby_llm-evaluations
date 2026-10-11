@@ -19,7 +19,7 @@ Inspired by DHH's convention-over-configuration and integrated product design, a
 
 Source paths are inside `lib/ruby_llm/evaluations/` unless otherwise noted.
 
-- `suite.rb`: question/expected-answer DSL, declarative criteria, metadata, and typed definition fingerprints.
+- `suite.rb`: question/expected-answer DSL, declarative minimum_scores, metadata, and typed definition fingerprints.
 - `evaluators.rb`, `action_group.rb`: deterministic checks, semantic accuracy, answer relevancy, and action-group checks.
 - `response.rb`, `actions.rb`, `adapters.rb`: responses, usage, action traces, and the optional RubyLLM chat adapter.
 - `runner.rb`: case isolation, scoring, captured failures, aggregates.
@@ -33,13 +33,14 @@ Source paths are inside `lib/ruby_llm/evaluations/` unless otherwise noted.
 
 - Any object responding to `call(question)` can be an agent. Provider configuration and credentials stay in consumer code.
 - Evaluators receive `(output, context)`. The context exposes case data and the full response. Return a Boolean, finite score in [0, 1], or `Assessment`. Thresholds are inclusive.
+- Question minimum_scores map metric names to absolute inclusive thresholds on every run, including the first; expected_answer is the reference, not a numeric target or string-similarity percentage. Regression separately compares observed scores to an earlier compatible baseline, so passing a minimum can still regress. Changing minimum_scores changes the definition fingerprint.
 - Semantic accuracy compares factual meaning with a reference. Relevancy measures response to the actual user request. Neither is a synonym for lexical matching.
 - The optional judge is a RubyLLM::Agent class supplied to the Suite constructor, instantiated fresh per assessment; never add global judge configuration or per-evaluator judge wrappers. Without a judge, skip LLM metrics. No computed metrics means not_evaluated with null quality/pass rate, never a passing or zero-quality substitute. Compare only equivalent computed metric sets.
 - Report#export owns file writing; callers and CLI must not assemble their own File.write(report.to_html) workflow.
 - Action groups are observed tool/API calls: group, action name, arguments, and order. Missing instrumentation is an error, not evidence of no action. Unexpected calls must reduce quality.
 - Agent/evaluator failures are recorded, never converted into passing checks. Other cases/checks continue.
 - Preserve caller-owned input and Ruby symbol/string distinctions. Persist JSON-portable data; never silently stringify unsupported objects.
-- Fingerprints include question data, expected answers/actions, criteria names/thresholds, metadata, Ruby types, and explicit suite version. Bump the version for scoring code/rubric/judge changes; do not auto-hash Proc source.
+- Fingerprints include question data, expected answers/actions, minimum_scores names/thresholds, metadata, Ruby types, and explicit suite version. Bump the version for scoring code/rubric/judge changes; do not auto-hash Proc source.
 - Baselines match suite, agent identity, and fingerprint. Historical reports never compare against future runs.
 - Run IDs are immutable. Named ActiveRecord models share the host pool; engine migrations are installed and applied through normal Rails tasks. Standalone CLI users explicitly run db:migrate. Preserve existing history; never establish or disconnect a host pool during library execution. Bind user-provided SQL values.
 - Treat output as untrusted. Escape HTML; keep the dashboard GET/HEAD-only and loopback by default. No external asset dependencies.

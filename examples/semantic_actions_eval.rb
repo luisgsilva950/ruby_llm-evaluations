@@ -31,11 +31,13 @@ end
 
 # Bump suite version when changing judge/rubrics. Model judges are nondeterministic
 # and prompt injection is not eliminated by labeling data as untrusted.
+# minimum_scores applies absolute inclusive thresholds on every run, including the first.
+# Previous-run regression comparison is separate and requires a compatible definition.
 RubyLLM::Evaluations.define("return policy semantics and actions", agent: agent, judge: PolicyJudgeAgent, agent_name: "PolicyAgent", version: "1") do
   question "What is the return window and condition for books?",
        name: "book returns",
        expected_answer: "Books can be returned within 30 days if unused.",
-       criteria: { semantic_accuracy: 0.9, answer_relevancy: 0.9, action_group: 1.0 },
+       minimum_scores: { semantic_accuracy: 0.9, answer_relevancy: 0.9, action_group: 1.0 },
        metadata: { important_facts: ["Books have a 30-day return deadline.", "Books must be unused."] },
        expected_actions: [{ group: "policy", name: ReturnPolicyTool.new.name, arguments: { category: "books" } }]
 end
