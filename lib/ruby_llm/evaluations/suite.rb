@@ -4,37 +4,45 @@ require "digest"
 
 module RubyLLM
   module Evaluations
-    TestCase = Struct.new(:id, :name, :input, :expected, :expected_actions, :metadata, keyword_init: true)
+    Question = Struct.new(:id, :name, :question, :expected_answer, :expected_actions, :criteria, :metadata,
+                          :evaluators, keyword_init: true) do
+      def to_h
+        super.reject { |key, _value| key == :evaluators }
+      end
+    end
     Evaluator = Struct.new(:name, :callable, :threshold, keyword_init: true)
 
     class Suite
-      attr_reader :name, :agent, :agent_name, :version, :cases, :evaluators
+      attr_reader :name, :agent, :agent_name, :version, :cases, :evaluators, :judge
 
-      def initialize(name, agent:, agent_name: nil, version: "1")
+      def initialize(name, agent:, judge: RubyLLM::Evaluations.judge, agent_name: nil, version: "1")
         @name = nonempty(name, "suite name")
         @agent_name = nonempty(agent_name || name, "agent name")
         @version = nonempty(version, "version")
         raise DefinitionError, "agent must respond to call" unless agent.respond_to?(:call)
         @agent = agent
+        @judge = judge
         @cases = []
         @evaluators = []
       end
 
-      def test(name, input:, expected: nil, expected_actions: nil, id: nil, metadata: {})
-        name = nonempty(name, "case name")
-        id = nonempty(id || name, "case id")
-        raise DefinitionError, "duplicate case id: #{id}" if cases.any? { |item| item.id == id }
-        raise DefinitionError, "case metadata must be a Hash" unless metadata.is_a?(Hash)
-        [input, expected, metadata].each { |value| Data.json_value(value) }
+      def question(value, expected_answer: nil, criteria: nil, metadata: {}, name: nil, id: nil, expected_actions: nil)
+        name = nonempty(name || (value.is_a?(String) ? value : "Question #{cases.size + 1}"), "question name")
+        id = nonempty(id || name, "question id")
+        raise DefinitionError, "duplicate question id: #{id}" if cases.any? { |item| item.id == id }
+        raise DefinitionError, "question metadata must be a Hash" unless metadata.is_a?(Hash)
+        [value, expected_answer, metadata].each { |item| Data.json_value(item) }
+        criteria = normalize_criteria(criteria) unless criteria.nil?
         unless expected_actions.nil?
           expected_actions = Actions.normalize(expected_actions)
           if expected_actions.any? { |action| action["group"].nil? }
             raise DefinitionError, "expected actions must specify an action group"
           end
         end
-        cases << TestCase.new(id: id, name: name, input: immutable_copy(input),
-                              expected: immutable_copy(expected), expected_actions: immutable_copy(expected_actions),
-                              metadata: immutable_copy(metadata)).freeze
+        cases << Question.new(id: id, name: name, question: immutable_copy(value),
+                              expected_answer: immutable_copy(expected_answer),
+                              expected_actions: immutable_copy(expected_actions),
+                              criteria: criteria, metadata: immutable_copy(metadata)).freeze
       end
 
       def evaluate(name, using: nil, threshold: 1.0, &block)
@@ -43,28 +51,68 @@ module RubyLLM
         raise DefinitionError, "choose using: or a block, not both" if using && block
         callable = using || block
         raise DefinitionError, "evaluator must respond to call" unless callable.respond_to?(:call)
-        unless threshold.is_a?(Numeric) && threshold.finite? && threshold.between?(0, 1)
-          raise DefinitionError, "threshold must be a finite number between 0 and 1"
-        end
+        validate_threshold(threshold)
         evaluators << Evaluator.new(name: name, callable: callable, threshold: threshold.to_f).freeze
       end
 
       def validate!
-        raise DefinitionError, "suite must contain at least one case" if cases.empty?
-        raise DefinitionError, "suite must contain at least one evaluator" if evaluators.empty?
+        raise DefinitionError, "suite must contain at least one question" if cases.empty?
+        cases.map! do |item|
+          criteria = item.criteria || if evaluators.empty?
+                                       { "semantic_accuracy" => 0.9, "answer_relevancy" => 0.9 }
+                                     else
+                                       evaluators.to_h { |definition| [definition.name, definition.threshold] }
+                                     end
+          definitions = criteria.map do |metric_name, threshold|
+            custom = evaluators.find { |definition| definition.name == metric_name }
+            callable = custom ? custom.callable : standard_metric(metric_name)
+            Evaluator.new(name: metric_name, callable: callable, threshold: threshold).freeze
+          end.freeze
+          Question.new(**item.to_h, criteria: immutable_copy(criteria), evaluators: definitions).freeze
+        end
         self
       end
 
       def digest
-        definition = {
-          "name" => name, "version" => version,
-          "cases" => cases.map { |item| definition_value(item.to_h) },
-          "evaluators" => evaluators.map { |item| { "name" => item.name, "threshold" => item.threshold } }
-        }
+        validate!
+        definition = { "name" => name, "version" => version,
+                       "cases" => cases.map { |item| definition_value(item.to_h) } }
         Digest::SHA256.hexdigest(JSON.generate(Data.canonical(definition)))
       end
 
       private
+
+      def standard_metric(name)
+        case name
+        when "semantic_accuracy", "answer_relevancy"
+          unless judge.respond_to?(:call)
+            raise DefinitionError, "#{name} requires a callable judge; configure RubyLLM::Evaluations.judge or pass judge: to define"
+          end
+          Evaluators.public_send(name, judge: judge)
+        when "action_group"
+          Evaluators.action_group
+        else
+          raise DefinitionError, "unknown criterion: #{name}; register it with evaluate"
+        end
+      end
+
+      def normalize_criteria(criteria)
+        unless criteria.is_a?(Hash) && !criteria.empty?
+          raise DefinitionError, "criteria must be a nonempty Hash of metric names and thresholds"
+        end
+        criteria.each_with_object({}) do |(name, threshold), normalized|
+          name = nonempty(name, "criterion name")
+          raise DefinitionError, "duplicate criterion: #{name}" if normalized.key?(name)
+          validate_threshold(threshold)
+          normalized[name] = threshold.to_f
+        end.freeze
+      end
+
+      def validate_threshold(threshold)
+        unless threshold.is_a?(Numeric) && threshold.finite? && threshold.between?(0, 1)
+          raise DefinitionError, "threshold must be a finite number between 0 and 1"
+        end
+      end
 
       # JSON snapshots normalize symbols, but Ruby agents distinguish key/value types.
       def definition_value(value)

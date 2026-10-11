@@ -1,41 +1,48 @@
 # frozen_string_literal: true
 
-require "securerandom"
-require "time"
-
 module RubyLLM
   module Evaluations
     class Runner
-      def initialize(store:)
-        @store = store
-      end
-
       def run(suite, metadata: {})
         suite.validate!
+        Run.require_postgresql!
+        raise Error, "Apply evaluation migrations before running a suite" unless Run.table_exists?
         raise ArgumentError, "run metadata must be a Hash" unless metadata.is_a?(Hash)
-        run = {
-          "id" => SecureRandom.uuid, "suite" => suite.name, "agent" => suite.agent_name,
-          "suite_digest" => suite.digest, "started_at" => Time.now.utc.iso8601(6),
-          "metadata" => Data.json_value(metadata)
-        }
+        run_metadata = Data.json_value(metadata)
+        digest = suite.digest
+        started_at = Time.now.utc
         started = clock
-        results = suite.cases.map { |test_case| run_case(suite, test_case) }
-        run.merge!("finished_at" => Time.now.utc.iso8601(6), "status" => "completed",
-                   "summary" => summarize(results, milliseconds(started)), "cases" => results)
-        @store.save(run)
-        run
+        # Finish all agent and evaluator calls before building/saving the database graph.
+        results = suite.cases.map { |question| run_case(suite, question) }
+        run = Run.new(suite: suite.name, agent: suite.agent_name, version: suite.version,
+                      suite_digest: digest, started_at: started_at, finished_at: Time.now.utc,
+                      status: "completed", metadata: run_metadata,
+                      summary: summarize(results, milliseconds(started)))
+        results.each_with_index do |result, position|
+          attributes = result.except("id", "metrics", "error")
+          record = run.case_results.build(attributes.merge("case_id" => result.fetch("id"),
+                                                           "error_details" => result["error"],
+                                                           "position" => position))
+          result.fetch("metrics").each_with_index do |metric, metric_position|
+            record.metric_results.build(metric.except("error").merge("error_details" => metric["error"],
+                                                                     "position" => metric_position))
+          end
+        end
+        # ActiveRecord save! atomically saves the autosaved associations in its short transaction.
+        run.save!
+        run.reload
       end
 
       private
 
-      def run_case(suite, test_case)
-        result = Data.json_value(test_case.to_h).merge(
+      def run_case(suite, question)
+        result = Data.json_value(question.to_h).merge(
           "output" => nil, "status" => "error", "input_tokens" => nil,
-          "output_tokens" => nil, "cost" => nil, "actions" => nil, "error" => nil, "evaluations" => []
+          "output_tokens" => nil, "cost" => nil, "actions" => nil, "error" => nil, "metrics" => []
         )
         started = clock
         begin
-          response = Response.normalize(suite.agent.call(mutable_copy(test_case.input)))
+          response = Response.normalize(suite.agent.call(mutable_copy(question.question)))
           result.merge!("output" => Data.json_value(response.output),
                         "input_tokens" => response.input_tokens, "output_tokens" => response.output_tokens,
                         "cost" => response.cost, "response_metadata" => response.metadata,
@@ -46,11 +53,11 @@ module RubyLLM
           return result
         end
         result["duration_ms"] = milliseconds(started)
-        context = Context.new(test_case, response)
-        result["evaluations"] = suite.evaluators.map { |evaluator| assess(evaluator, response.output, context) }
-        result["status"] = if result["evaluations"].any? { |item| item["error"] }
+        context = Context.new(question, response)
+        result["metrics"] = question.evaluators.map { |evaluator| assess(evaluator, response.output, context) }
+        result["status"] = if result["metrics"].any? { |item| item["error"] }
                              "error"
-                           elsif result["evaluations"].all? { |item| item["passed"] }
+                           elsif result["metrics"].all? { |item| item["passed"] }
                              "passed"
                            else
                              "failed"
@@ -87,8 +94,8 @@ module RubyLLM
         counts = results.group_by { |item| item["status"] }.transform_values(&:size)
         # An agent error has no assessments; its case quality is zero, not missing data.
         scores = results.map do |item|
-          evaluations = item["evaluations"]
-          evaluations.empty? ? 0.0 : evaluations.sum { |evaluation| evaluation["score"] || 0.0 } / evaluations.size
+          metrics = item["metrics"]
+          metrics.empty? ? 0.0 : metrics.sum { |evaluation| evaluation["score"] || 0.0 } / metrics.size
         end
         {
           "cases" => results.size, "passed" => counts.fetch("passed", 0),

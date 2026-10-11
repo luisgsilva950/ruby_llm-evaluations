@@ -9,60 +9,62 @@ class EvaluationTest < Minitest::Test
 
   def setup
     @sandbox = PostgresSandbox.new
-    @store = E::Store.new(@sandbox.database_url)
+
   end
 
   def teardown
-    @store.close
+
     @sandbox.close
   end
 
   def run_suite(agent:, &block)
     suite = E.define("checks", agent: agent, &block)
-    E::Runner.new(store: @store).run(suite)
+    E::Runner.new.run(suite).snapshot
   end
 
   def test_agent_error_is_persisted_without_aborting_remaining_cases
     agent = ->(input) { raise "provider unavailable" if input == "bad"; input.upcase }
     run = run_suite(agent: agent) do
       evaluate :answer, using: E::Evaluators.exact_match
-      test "provider error", input: "bad", expected: "BAD"
-      test "success", input: "ok", expected: "OK"
+      question "bad", expected_answer: "BAD", name: "provider error"
+      question "ok", expected_answer: "OK", name: "success"
     end
     assert_equal %w[error passed], run["cases"].map { |item| item["status"] }
     assert_equal({ "class" => "RuntimeError", "message" => "provider unavailable" }, run["cases"][0]["error"])
+    assert_equal({ "answer" => 1.0 }, run["cases"][0]["criteria"])
+    assert_empty run["cases"][0]["metrics"]
     assert_equal 0.5, run["summary"]["pass_rate"]
     assert_equal 0.5, run["summary"]["score"]
-    assert_equal run, @store.find(run["id"])
+    assert_equal run, E::Run.find(run["id"]).snapshot
   end
 
   def test_evaluator_error_does_not_skip_other_checks
     run = run_suite(agent: ->(input) { input }) do
       evaluate(:broken) { |_output, _test_case| raise "judge unavailable" }
-      evaluate(:correct) { |output, test_case| E::Assessment.new(score: output == test_case.expected, reason: "matched") }
-      test "answer", input: "yes", expected: "yes"
+      evaluate(:correct) { |output, test_case| E::Assessment.new(score: output == test_case.expected_answer, reason: "matched") }
+      question "yes", expected_answer: "yes", name: "answer"
     end
     result = run["cases"].first
     assert_equal "error", result["status"]
-    assert_equal "judge unavailable", result["evaluations"][0]["error"]["message"]
-    assert_equal 1.0, result["evaluations"][1]["score"]
-    assert_equal "matched", result["evaluations"][1]["reason"]
+    assert_equal "judge unavailable", result["metrics"][0]["error"]["message"]
+    assert_equal 1.0, result["metrics"][1]["score"]
+    assert_equal "matched", result["metrics"][1]["reason"]
     assert_equal 0.5, run["summary"]["score"]
   end
 
   def test_threshold_is_inclusive_and_nonfinite_scores_become_errors
     run = run_suite(agent: ->(input) { input }) do
       evaluate(:quality, threshold: 0.75) { |output, _test_case| output }
-      test "boundary", input: 0.75
-      test "below", input: 0.749
+      question 0.75, name: "boundary"
+      question 0.749, name: "below"
     end
     assert_equal %w[passed failed], run["cases"].map { |item| item["status"] }
     bad = run_suite(agent: ->(_input) { "answer" }) do
       evaluate(:quality) { |_output, _test_case| Float::NAN }
-      test "invalid score", input: "prompt"
+      question "prompt", name: "invalid score"
     end
     assert_equal "error", bad["cases"].first["status"]
-    assert_nil @store.find(bad["id"])["cases"].first["evaluations"].first["score"]
+    assert_nil E::Run.find(bad["id"]).snapshot["cases"].first["metrics"].first["score"]
     assert_equal 0.0, bad["summary"]["score"]
   end
 
@@ -70,14 +72,14 @@ class EvaluationTest < Minitest::Test
     input = { values: ["original"] }
     suite = E.define("mutable agent", agent: ->(data) { data[:values].first.replace("changed"); data[:values].first }) do
       evaluate :answer, using: E::Evaluators.exact_match
-      test "mutation", input: input, expected: "changed"
+      question input, expected_answer: "changed", name: "mutation"
     end
     before = suite.digest
-    first = E::Runner.new(store: @store).run(suite)
-    second = E::Runner.new(store: @store).run(suite)
+    first = E::Runner.new.run(suite).snapshot
+    second = E::Runner.new.run(suite).snapshot
     assert_equal "original", input[:values].first
     assert_equal before, second["suite_digest"]
-    assert_equal({ "values" => ["original"] }, first["cases"].first["input"])
+    assert_equal({ "values" => ["original"] }, first["cases"].first["question"])
     assert_equal "passed", second["cases"].first["status"]
   end
 
@@ -85,7 +87,7 @@ class EvaluationTest < Minitest::Test
     build = lambda do |expected, threshold, version|
       E.define("stable suite", agent: ->(input) { input }, version: version) do
         evaluate :answer, using: E::Evaluators.exact_match, threshold: threshold
-        test "case", input: "prompt", expected: expected
+        question "prompt", expected_answer: expected, name: "case"
       end
     end
     base = build.call("answer", 1.0, "1").digest
@@ -98,9 +100,9 @@ class EvaluationTest < Minitest::Test
     agent = ->(_input) { E::Response.new(output: "ok", input_tokens: 12, output_tokens: 3, cost: 0.002, metadata: { model: "local" }) }
     run = run_suite(agent: agent) do
       evaluate :answer, using: E::Evaluators.exact_match
-      test "usage", input: "prompt", expected: "ok"
+      question "prompt", expected_answer: "ok", name: "usage"
     end
-    result = @store.find(run["id"])
+    result = E::Run.find(run["id"]).snapshot
     assert_equal 12, result["summary"]["input_tokens"]
     assert_equal 3, result["summary"]["output_tokens"]
     assert_equal 0.002, result["summary"]["cost"]
@@ -111,7 +113,7 @@ class EvaluationTest < Minitest::Test
     build = lambda do |input|
       E.define("typed inputs", agent: ->(value) { value }) do
         evaluate(:quality) { true }
-        test "data", input: input
+        question input, name: "data"
       end
     end
     refute_equal build.call({ prompt: "hello" }).digest, build.call({ "prompt" => "hello" }).digest
@@ -124,16 +126,45 @@ class EvaluationTest < Minitest::Test
     evaluator = E::Evaluators.llm_judge(judge: judge, rubric: "Factual accuracy")
     run = run_suite(agent: ->(_input) { "Paris" }) do
       evaluate :judge, using: evaluator, threshold: 0.7
-      test "capital", input: "France?", expected: "Paris"
+      question "France?", expected_answer: "Paris", name: "capital"
     end
     assert_equal "passed", run["cases"].first["status"]
-    assert_equal "Factually correct", run["cases"].first["evaluations"].first["reason"]
+    assert_equal "Factually correct", run["cases"].first["metrics"].first["reason"]
     invalid = E::Evaluators.llm_judge(judge: ->(_prompt) { "not JSON" }, rubric: "Accuracy")
     run = run_suite(agent: ->(_input) { "Paris" }) do
       evaluate :judge, using: invalid
-      test "capital", input: "France?"
+      question "France?", name: "capital"
     end
     assert_equal "error", run["cases"].first["status"]
-    assert_equal "JSON::ParserError", run["cases"].first["evaluations"].first["error"]["class"]
+    assert_equal "JSON::ParserError", run["cases"].first["metrics"].first["error"]["class"]
+  end
+  def test_fingerprint_includes_question_criteria_metadata_and_actions
+    build = lambda do |criteria, metadata, actions|
+      E.define("identity", agent: ->(value) { value }) do
+        evaluate(:quality) { true }
+        question "prompt", expected_answer: "answer", criteria: criteria, metadata: metadata, expected_actions: actions
+      end
+    end
+    base = build.call({ quality: 0.9 }, { important_facts: ["fact"] }, []).digest
+    refute_equal base, build.call({ quality: 0.8 }, { important_facts: ["fact"] }, []).digest
+    refute_equal base, build.call({ quality: 0.9 }, { important_facts: ["other"] }, []).digest
+    refute_equal base, build.call({ quality: 0.9 }, { important_facts: ["fact"] }, [{ group: "orders", name: "lookup", arguments: {} }]).digest
+  end
+
+  def test_standard_defaults_use_shared_judge_and_never_pay_by_default
+    previous = E.judge
+    E.judge = nil
+    assert_raises(E::DefinitionError) do
+      E.define("unconfigured", agent: ->(_) { "answer" }) { question "prompt", expected_answer: "answer" }
+    end
+    prompts = []
+    E.judge = ->(prompt) { prompts << prompt; { score: 1, reason: "scripted protocol fixture" } }
+    suite = E.define("configured", agent: ->(_) { "answer" }) { question "prompt", expected_answer: "answer" }
+    run = E.run(suite)
+    assert_equal %w[semantic_accuracy answer_relevancy], run.case_results.first.metric_results.map(&:name)
+    assert_equal [0.9, 0.9], run.case_results.first.metric_results.map(&:threshold)
+    assert_equal 2, prompts.size
+  ensure
+    E.judge = previous
   end
 end

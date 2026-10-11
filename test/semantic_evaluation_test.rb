@@ -7,7 +7,7 @@ class SemanticEvaluationTest < Minitest::Test
   E = RubyLLM::Evaluations
 
   def context(reference = "Returns are accepted within thirty days.")
-    E::TestCase.new(input: "How long do I have to return an item?", expected: reference)
+    E::Question.new(question: "How long do I have to return an item?", expected_answer: reference, metadata: {})
   end
 
   def test_paraphrase_uses_configured_judgment_not_exact_matching
@@ -56,20 +56,17 @@ class SemanticEvaluationTest < Minitest::Test
     suite = E.define("semantic integration", agent: ->(_) { "You have 30 days." }) do
       evaluate :accuracy, using: E::Evaluators.semantic_accuracy(judge: judge), threshold: 0.9
       evaluate :relevance, using: E::Evaluators.answer_relevancy(judge: ->(_) { { score: 1, reason: "On topic." } })
-      test "paraphrase", input: "Return window?", expected: "Within thirty days."
-      test "bad judgment", input: "Return window?", expected: "Within thirty days."
-      test "no reference", input: "Return window?"
+      question "Return window?", expected_answer: "Within thirty days.", name: "paraphrase"
+      question "Return window?", expected_answer: "Within thirty days.", name: "bad judgment"
+      question "Return window?", name: "no reference"
     end
     sandbox = PostgresSandbox.new
     begin
-      store = E::Store.new(sandbox.database_url)
       begin
-        run = E::Runner.new(store: store).run(suite)
+        run = E::Runner.new.run(suite).snapshot
         assert_equal %w[passed error error], run["cases"].map { |item| item["status"] }
-        assert_equal run, store.find(run["id"])
-        assert_equal 2, run["cases"][1]["evaluations"].size
-      ensure
-        store.close
+        assert_equal run, E::Run.find(run["id"]).snapshot
+        assert_equal 2, run["cases"][1]["metrics"].size
       end
     ensure
       sandbox.close

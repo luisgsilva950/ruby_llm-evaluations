@@ -2,7 +2,6 @@
 
 require "cgi"
 require "json"
-require_relative "data"
 
 module RubyLLM
   module Evaluations
@@ -11,11 +10,16 @@ module RubyLLM
         unless tolerance.is_a?(Numeric) && tolerance.finite? && tolerance >= 0
           raise ArgumentError, "tolerance must be a finite nonnegative number"
         end
-        @run = Data.json_value(run)
-        @baseline = baseline && Data.json_value(baseline)
+        raise ArgumentError, "run must be a RubyLLM::Evaluations::Run" unless run.is_a?(Run)
+        raise ArgumentError, "baseline must be a RubyLLM::Evaluations::Run" if baseline && !baseline.is_a?(Run)
+        @run = run.snapshot
+        @baseline = baseline&.snapshot
         @tolerance = tolerance.to_f
         if @baseline && %w[suite agent suite_digest].any? { |key| @run.fetch(key) != @baseline.fetch(key) }
           raise ArgumentError, "baseline must have the same suite, agent, and suite digest"
+        end
+        if baseline && ([baseline.started_at, baseline.sequence] <=> [run.started_at, run.sequence]) >= 0
+          raise ArgumentError, "baseline must be earlier than the current run"
         end
         @comparison = compare if @baseline
       end
@@ -23,6 +27,8 @@ module RubyLLM
       def comparison
         @comparison
       end
+
+      attr_reader :run
 
       def to_json(*args)
         @run.merge("comparison" => comparison).to_json(*args)
@@ -115,8 +121,8 @@ module RubyLLM
           return
         end
 
-        old_evaluations = before.fetch("evaluations").to_h { |item| [item.fetch("name"), item] }
-        new_evaluations = after.fetch("evaluations").to_h { |item| [item.fetch("name"), item] }
+        old_evaluations = before.fetch("metrics").to_h { |item| [item.fetch("name"), item] }
+        new_evaluations = after.fetch("metrics").to_h { |item| [item.fetch("name"), item] }
         regression_count = regressions.length
         improvement_count = improvements.length
         (old_evaluations.keys | new_evaluations.keys).each do |name|
@@ -169,7 +175,7 @@ module RubyLLM
       def case_score(item)
         return 0.0 if agent_error?(item)
 
-        scores = item.fetch("evaluations").map { |evaluation| evaluation_score(evaluation) || 0.0 }
+        scores = item.fetch("metrics").map { |evaluation| evaluation_score(evaluation) || 0.0 }
         scores.empty? ? (item["status"] == "passed" ? 1.0 : 0.0) : scores.sum.to_f / scores.length
       end
 
@@ -199,13 +205,14 @@ module RubyLLM
         @run.fetch("cases").each do |item|
           result << ["Case: #{item.fetch('name')}", {
             "ID" => item.fetch("id"), "Status" => item.fetch("status"),
-            "Input" => item["input"], "Expected" => item["expected"], "Output" => item["output"],
+            "Question" => item["question"], "Expected answer" => item["expected_answer"], "Output" => item["output"],
+            "Criteria" => item["criteria"],
             "Expected actions (ordered)" => item["expected_actions"] || "Unavailable — expected actions not specified",
             "Observed actions (ordered)" => item["actions"] || "Unavailable — action instrumentation missing",
             "Response metadata" => item["response_metadata"].nil? ? "Unavailable — response metadata not reported" : item["response_metadata"],
             "Metadata" => item["metadata"], "Duration (ms)" => item["duration_ms"],
             "Input tokens" => item["input_tokens"], "Output tokens" => item["output_tokens"],
-            "Cost" => item["cost"], "Error" => item["error"], "Assessments" => item.fetch("evaluations")
+            "Cost" => item["cost"], "Error" => item["error"], "Metrics" => item.fetch("metrics")
           }]
         end
         result

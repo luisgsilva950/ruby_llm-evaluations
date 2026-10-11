@@ -16,7 +16,7 @@ class CLITest < Minitest::Test
       require "ruby_llm/evaluations"
       RubyLLM::Evaluations.define("quality", agent: ->(input) { input }, agent_name: "Agent") do
         evaluate(:quality, threshold: 0.5) { |_output, _test_case| Float(ENV.fetch("QUALITY", "0.9")) }
-        test "answer", input: "prompt"
+        question "prompt", name: "answer"
       end
     RUBY
   end
@@ -50,9 +50,45 @@ class CLITest < Minitest::Test
     _output, error, status = cli("run", @spec, "--baseline", "missing")
     assert_equal 2, status.exitstatus
     assert_includes error, "baseline run not found"
-    store = RubyLLM::Evaluations::Store.new(@database)
-    assert_empty store.list
+    assert_empty RubyLLM::Evaluations::Run.all
+  end
+  def test_all_cli_formats_and_history_commands_use_models
+    output, error, status = cli("run", @spec, "--format", "json")
+    assert status.success?, error
+    id = JSON.parse(output).fetch("id")
+    %w[text markdown html json].each do |format|
+      report, error, status = cli("report", id, "--format", format)
+      assert status.success?, error
+      assert_includes report, "quality"
+    end
+    assert_equal id, RubyLLM::Evaluations::Run.first.id
+  end
+  def test_missing_schema_requires_explicit_migration
+    empty = PostgresSandbox.new(migrate: false)
+    original = @database
+    @database = empty.database_url
+    _output, error, status = cli("history")
+    assert_equal 2, status.exitstatus
+    assert_includes error, "db:migrate"
+    output, error, status = cli("db:migrate")
+    assert status.success?, error
+    assert_includes output, "migrated"
+    _output, error, status = cli("run", @spec)
+    assert status.success?, error
   ensure
-    store&.close
+    @database = original
+    empty&.close
+  end
+
+  def test_explicit_future_baseline_does_not_execute_agent
+    definition = TOPLEVEL_BINDING.eval(File.read(@spec), @spec)
+    future = Time.now.utc + 3600
+    RubyLLM::Evaluations::Run.create!(id: "future", suite: definition.name, agent: definition.agent_name,
+      version: definition.version, suite_digest: definition.digest, started_at: future, finished_at: future,
+      status: "completed", metadata: {}, summary: {})
+    _output, error, status = cli("run", @spec, "--baseline", "future")
+    assert_equal 2, status.exitstatus
+    assert_includes error, "earlier"
+    assert_equal 1, RubyLLM::Evaluations::Run.count
   end
 end

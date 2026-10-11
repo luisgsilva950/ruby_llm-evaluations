@@ -63,20 +63,17 @@ class RubyLLMAdapterTest < Minitest::Test
     assert_equal [4, 4], chats.map { |chat| chat.messages.size }
     suite = E.define("traced chat integration", agent: agent) do
       evaluate :actions, using: E::Evaluators.action_group
-      test "first", input: "first", expected_actions: first.actions.reject { |action| action["group"].nil? }
-      test "second", input: "second", expected_actions: first.actions.reject { |action| action["group"].nil? }
+      question "first", expected_actions: first.actions.reject { |action| action["group"].nil? }, name: "first"
+      question "second", expected_actions: first.actions.reject { |action| action["group"].nil? }, name: "second"
     end
     sandbox = PostgresSandbox.new
     begin
-      store = E::Store.new(sandbox.database_url)
       begin
-        run = E::Runner.new(store: store).run(suite)
+        run = E::Runner.new.run(suite).snapshot
         assert_equal %w[failed failed], run["cases"].map { |item| item["status"] }
         assert_equal first.actions, run["cases"][0]["actions"]
         assert_equal 60, run["cases"][1]["input_tokens"]
-        assert_equal run, store.find(run["id"])
-      ensure
-        store.close
+        assert_equal run, E::Run.find(run["id"]).snapshot
       end
     ensure
       sandbox.close

@@ -2,7 +2,7 @@
 
 ## Product and boundaries
 
-Build `ruby_llm-evaluations`: a Ruby gem for code-defined evaluations of any callable agent, durable history, compatible-baseline regression reports, and a read-only local dashboard. Keep all four capabilities working together. Semantic accuracy, answer relevancy, and action-group correctness are first-class evaluation dimensions. RubyLLM is optional, not a required runtime dependency. This is not a Rails application.
+Build `ruby_llm-evaluations`: a Ruby gem and optional Rails engine for question-first evaluations of any callable agent, durable PostgreSQL history, compatible-baseline regression reports, and a read-only dashboard. Keep all four capabilities working together. Semantic accuracy, answer relevancy, and action-group correctness are first-class dimensions. RubyLLM is optional; Rails hosts use their normal ActiveRecord connection and migration lifecycle.
 
 ## Design stance
 
@@ -11,7 +11,7 @@ Inspired by DHH's convention-over-configuration and integrated product design, a
 - Prefer ordinary Ruby, expressive names, cohesive objects, and obvious control flow.
 - Build the concrete feature first. Extract demonstrated duplication; avoid service factories, dependency-injection containers, speculative adapters, and premature extensibility.
 - Keep a useful default: one spec file, one PostgreSQL database, one executable, one localhost dashboard.
-- Use standard libraries and existing dependencies before adding gems. No Rails, JavaScript build system, or background-job stack without a requirement.
+- Use standard libraries and existing dependencies before adding gems. Use ordinary ActiveRecord models and Rails engine conventions; no JavaScript build system or background-job stack without a requirement.
 - Optimize measured bottlenecks. Understand queries, allocations, I/O, and provider costs before claiming performance improvements.
 - Prefer explicit boundaries and errors over magical coercion, hidden retries, swallowed exceptions, or fabricated evaluation success.
 
@@ -19,26 +19,27 @@ Inspired by DHH's convention-over-configuration and integrated product design, a
 
 Source paths are inside `lib/ruby_llm/evaluations/` unless otherwise noted.
 
-- `suite.rb`: DSL, cases, stable evaluation-definition identity.
+- `suite.rb`: question/expected-answer DSL, declarative criteria, metadata, and typed definition fingerprints.
 - `evaluators.rb`, `action_group.rb`: deterministic checks, semantic accuracy, answer relevancy, and action-group checks.
 - `response.rb`, `actions.rb`, `adapters.rb`: responses, usage, action traces, and the optional RubyLLM chat adapter.
 - `runner.rb`: case isolation, scoring, captured failures, aggregates.
-- `store.rb`: ActiveRecord-backed append-only PostgreSQL history and chronological baseline lookup.
+- Root `app/models/ruby_llm/evaluations/`: named Run, CaseResult, and MetricResult models, append-only evidence, associations, and chronological baseline lookup.
+- Root `db/migrate/`, `config/routes.rb`, and `engine.rb`: standard Rails migration, autoloading, and routing lifecycle.
 - `report.rb`: compatible comparisons and text/Markdown/HTML/JSON reports.
 - `dashboard.rb`, `dashboard/`: read-only Rack-compatible HTTP surface and local assets.
 - `cli.rb`, root `exe/`, root `examples/`: executable consumer workflow.
 
 ## Contracts to preserve
 
-- Any object responding to `call(input)` can be an agent. Provider configuration and credentials stay in consumer code.
+- Any object responding to `call(question)` can be an agent. Provider configuration and credentials stay in consumer code.
 - Evaluators receive `(output, context)`. The context exposes case data and the full response. Return a Boolean, finite score in [0, 1], or `Assessment`. Thresholds are inclusive.
 - Semantic accuracy compares factual meaning with a reference. Relevancy measures response to the actual user request. Neither is a synonym for lexical matching.
 - Action groups are observed tool/API calls: group, action name, arguments, and order. Missing instrumentation is an error, not evidence of no action. Unexpected calls must reduce quality.
 - Agent/evaluator failures are recorded, never converted into passing checks. Other cases/checks continue.
 - Preserve caller-owned input and Ruby symbol/string distinctions. Persist JSON-portable data; never silently stringify unsupported objects.
-- Fingerprints include dataset, Ruby input types, evaluator names/thresholds, and explicit suite version. Bump the version for scoring code/rubric changes; do not auto-hash Proc source.
+- Fingerprints include question data, expected answers/actions, criteria names/thresholds, metadata, Ruby types, and explicit suite version. Bump the version for scoring code/rubric/judge changes; do not auto-hash Proc source.
 - Baselines match suite, agent identity, and fingerprint. Historical reports never compare against future runs.
-- Run IDs are immutable. PostgreSQL migrations preserve evidence and stay separate from host Rails schema migrations. Bind user-provided SQL values. Never switch or disconnect the host ActiveRecord connection pool.
+- Run IDs are immutable. Named ActiveRecord models share the host pool; engine migrations are installed and applied through normal Rails tasks. Standalone CLI users explicitly run db:migrate. Preserve existing history; never establish or disconnect a host pool during library execution. Bind user-provided SQL values.
 - Treat output as untrusted. Escape HTML; keep the dashboard GET/HEAD-only and loopback by default. No external asset dependencies.
 - Prompts, outputs, and reports may contain sensitive data. No credentials in fixtures, source, logs, or tracked databases.
 
@@ -57,6 +58,7 @@ Follow the README PostgreSQL setup and export `DATABASE_URL` / `TEST_DATABASE_UR
 ```sh
 bundle install
 bundle exec rake test
+bundle exec ruby -Ilib exe/ruby_llm-evaluations db:migrate
 bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/support_eval.rb
 AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/support_eval.rb --fail-on-regression
 bundle exec ruby -Ilib exe/ruby_llm-evaluations dashboard

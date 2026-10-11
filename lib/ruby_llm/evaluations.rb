@@ -10,28 +10,41 @@ require_relative "evaluations/adapters"
 require_relative "evaluations/context"
 require_relative "evaluations/action_group"
 require_relative "evaluations/runner"
-require_relative "evaluations/store"
+require_relative "../../app/models/ruby_llm/evaluations/application_record"
+require_relative "../../app/models/ruby_llm/evaluations/run"
+require_relative "../../app/models/ruby_llm/evaluations/case_result"
+require_relative "../../app/models/ruby_llm/evaluations/metric_result"
 require_relative "evaluations/report"
 require_relative "evaluations/dashboard"
 
 module RubyLLM
   module Evaluations
     DEFAULT_DATABASE_URL = "postgresql://localhost/ruby_llm_evaluations"
+    MIGRATIONS_PATH = File.expand_path("../../db/migrate", __dir__).freeze
+    autoload :Engine, File.expand_path("evaluations/engine", __dir__)
 
-    def self.define(name, agent:, agent_name: nil, version: "1", &block)
-      Suite.new(name, agent: agent, agent_name: agent_name, version: version).tap do |suite|
+    class << self
+      attr_accessor :judge
+    end
+
+    def self.define(name, agent:, judge: self.judge, agent_name: nil, version: "1", &block)
+      Suite.new(name, agent: agent, judge: judge, agent_name: agent_name, version: version).tap do |suite|
         suite.instance_eval(&block) if block
         suite.validate!
       end
     end
 
-    def self.run(suite, database_url: ENV.fetch("DATABASE_URL", DEFAULT_DATABASE_URL), metadata: {})
-      store = Store.new(database_url)
-      begin
-        Runner.new(store: store).run(suite, metadata: metadata)
-      ensure
-        store.close
-      end
+    def self.run(suite, metadata: {})
+      Runner.new.run(suite, metadata: metadata)
+    end
+
+    # Standalone setup uses Rails migrations; a host application uses db:migrate.
+    def self.migrate!
+      ApplicationRecord.require_postgresql!
+      ::ActiveRecord::MigrationContext.new([MIGRATIONS_PATH]).migrate
+      [Run, CaseResult, MetricResult].each(&:reset_column_information)
     end
   end
 end
+
+require_relative "evaluations/engine" if defined?(::Rails::Engine)

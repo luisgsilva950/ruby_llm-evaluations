@@ -2,33 +2,49 @@
 
 require "ruby_llm/evaluations"
 
-# Offline, instrumented retrieval agent. No provider calls or credentials required.
-# AGENT_REVISION=regressed introduces a wrong policy answer AND wrong lookup arguments.
-policies = {
-  "How long is the return window?" => "Returns are accepted within 30 days.",
-  "How long does shipping take?" => "Standard shipping takes 3 to 5 business days.",
-  "Can I track my order?" => "Use the tracking link in your shipping confirmation email.",
-  "Do you support international orders?" => "We ship to the US and Canada.",
-  "How do I contact support?" => "Email support@example.com.",
-  "Can you give me a discount?" => "I cannot promise discounts. Please contact support."
-}.freeze
+# Offline deterministic demo, NOT semantic judging. No provider calls or credentials.
+# The recorded action is the actual lookup executed by this local agent.
+class OfflineSupportAgent
+  def call(question)
+    regressed = ENV["AGENT_REVISION"] == "regressed" && question == "How long do I have to return an item?"
+    lookup_question = regressed ? "How long does shipping take?" : question
+    answer = lookup_answer(lookup_question)
+    answer = "You can return it within 7 days." if regressed
+    RubyLLM::Evaluations::Response.new(
+      output: answer,
+      actions: [{ group: "support", name: "lookup_answer", arguments: { question: lookup_question } }]
+    )
+  end
 
-agent = lambda do |input|
-  regressed = ENV["AGENT_REVISION"] == "regressed" && input == "How long is the return window?"
-  lookup_question = regressed ? "How long does shipping take?" : input
-  answer = policies.fetch(lookup_question)
-  answer = "Returns are accepted within 7 days." if regressed
-  RubyLLM::Evaluations::Response.new(
-    output: answer,
-    actions: [{ group: "policies", name: "lookup_policy", arguments: { question: lookup_question } }]
-  )
+  private
+
+  def lookup_answer(question)
+    case question
+    when "How long do I have to return an item?" then "You can return it within 30 days."
+    when "How long does shipping take?" then "Standard shipping takes 3 to 5 business days."
+    when "Can I track my order?" then "Use the tracking link in your shipping confirmation email."
+    else raise ArgumentError, "unknown support question"
+    end
+  end
 end
 
-RubyLLM::Evaluations.define("support policies", agent: agent, agent_name: "SupportAgent", version: "1") do
-  evaluate :policy_accuracy, using: RubyLLM::Evaluations::Evaluators.exact_match
+RubyLLM::Evaluations.define("Customer support (offline exact match)", agent: OfflineSupportAgent.new,
+                            agent_name: "SupportAgent", version: "1") do
+  evaluate :exact_match, using: RubyLLM::Evaluations::Evaluators.exact_match
   evaluate :action_group, using: RubyLLM::Evaluations::Evaluators.action_group
-  policies.each do |question, answer|
-    test question, input: question, expected: answer,
-         expected_actions: [{ group: "policies", name: "lookup_policy", arguments: { question: question } }]
-  end
+
+  question "How long do I have to return an item?",
+           expected_answer: "You can return it within 30 days.",
+           criteria: { exact_match: 1.0, action_group: 1.0 },
+           metadata: { important_facts: ["The return deadline is 30 days."] },
+           expected_actions: [{ group: "support", name: "lookup_answer",
+                                arguments: { question: "How long do I have to return an item?" } }]
+  question "How long does shipping take?",
+           expected_answer: "Standard shipping takes 3 to 5 business days.",
+           expected_actions: [{ group: "support", name: "lookup_answer",
+                                arguments: { question: "How long does shipping take?" } }]
+  question "Can I track my order?",
+           expected_answer: "Use the tracking link in your shipping confirmation email.",
+           expected_actions: [{ group: "support", name: "lookup_answer",
+                                arguments: { question: "Can I track my order?" } }]
 end

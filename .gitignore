@@ -3,3 +3,6 @@
 /pkg/
 *.gem
 /reports/
+/log/
+/tmp/
+.DS_Store

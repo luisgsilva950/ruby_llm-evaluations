@@ -6,11 +6,11 @@ module RubyLLM
   module Evaluations
     class Context
       extend Forwardable
-      attr_reader :test_case, :response
-      def_delegators :@test_case, :id, :name, :input, :expected, :expected_actions, :metadata
+      attr_reader :question_data, :response
+      def_delegators :@question_data, :id, :name, :question, :expected_answer, :expected_actions, :criteria, :metadata
 
-      def initialize(test_case, response)
-        @test_case = test_case
+      def initialize(question_data, response)
+        @question_data = question_data
         @response = response
       end
     end

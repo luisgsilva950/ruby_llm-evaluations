@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "cgi"
+require "digest"
 require "erb"
 require "json"
 require "uri"
@@ -21,8 +22,7 @@ module RubyLLM
         [name, File.join(ASSET_DIRECTORY, "#{name}.erb")]
       end.freeze
 
-      def initialize(store:)
-        @store = store
+      def initialize
         @templates = TEMPLATES.transform_values { |path| ERB.new(File.read(path), trim_mode: "-") }
         @stylesheet = File.read(File.join(ASSET_DIRECTORY, "dashboard.css"))
       end
@@ -40,6 +40,9 @@ module RubyLLM
         end
 
         status, headers, body = dispatch(env)
+        [status, headers, method == "HEAD" ? [] : body]
+      rescue ::ActiveRecord::ActiveRecordError
+        status, headers, body = response(503, error_page(503, "Database configuration required", "Configure the host ActiveRecord connection and apply the evaluation migrations. Standalone users: run ruby_llm-evaluations db:migrate."))
         [status, headers, method == "HEAD" ? [] : body]
       rescue ArgumentError, URI::InvalidURIError => error
         status, headers, body = response(400, error_page(400, "Invalid request", error.message))
@@ -93,12 +96,17 @@ module RubyLLM
         when "/", "/api/runs"
           validate_query(query, %w[suite agent limit])
           limit = query.key?("limit") ? parse_limit(query.fetch("limit")) : 100
-          runs = @store.list(suite: filter(query["suite"]), agent: filter(query["agent"]), limit: limit)
+          records = Run.recent.with_results
+          records = records.for_suite(filter(query["suite"])) if filter(query["suite"])
+          records = records.for_agent(filter(query["agent"])) if filter(query["agent"])
+          records = records.limit(limit).to_a
           if path == "/api/runs"
-            response(200, JSON.generate(runs), "application/json; charset=utf-8")
+            response(200, JSON.generate(records.map(&:snapshot)), "application/json; charset=utf-8")
           else
-            catalog = @store.list(limit: 1000)
-            comparisons = runs.to_h { |run| [run.fetch("id"), report_for(run).comparison] }
+            catalog = Run.recent.limit(1000).map { |run| { "suite" => run.suite, "agent" => run.agent } }
+            reports = records.map { |run| report_for(run) }
+            runs = reports.map(&:run)
+            comparisons = reports.to_h { |report| [report.run.fetch("id"), report.comparison] }
             html = render("index", runs: runs, catalog: catalog, query: query, comparisons: comparisons, limit: limit)
             response(200, layout(html, "Evaluation history"))
           end
@@ -107,7 +115,7 @@ module RubyLLM
           id = Regexp.last_match(2)
           validate_query(query, api ? ["download"] : [])
           raise ArgumentError, "download must be 1" if query.key?("download") && query["download"] != "1"
-          run = @store.find(id)
+          run = Run.with_results.find_by(id: id)
           return response(404, error_page(404, "Run not found", "This run is not in your local history.")) unless run
 
           report = report_for(run)
@@ -115,8 +123,8 @@ module RubyLLM
             headers = query["download"] == "1" ? { "content-disposition" => "attachment; filename=\"evaluation-#{id}.json\"" } : {}
             response(200, report.to_json, "application/json; charset=utf-8", headers)
           else
-            html = render("run", run: run, comparison: report.comparison)
-            response(200, layout(html, run.fetch("suite")))
+            html = render("run", run: report.run, comparison: report.comparison)
+            response(200, layout(html, run.suite))
           end
         else
           response(404, error_page(404, "Page not found", "Choose a run from evaluation history to continue."))
@@ -172,11 +180,7 @@ module RubyLLM
       end
 
       def report_for(run)
-        baseline = @store.latest(
-          suite: run.fetch("suite"), agent: run.fetch("agent"),
-          suite_digest: run.fetch("suite_digest"), before_id: run.fetch("id")
-        )
-        Report.new(run, baseline: baseline)
+        Report.new(run, baseline: run.previous)
       end
 
       def response(status, body, content_type = "text/html; charset=utf-8", extra = {})
@@ -249,9 +253,10 @@ module RubyLLM
         palette = %w[#087f8c #3657a3 #a85c22 #8b4f94 #377746 #a63756]
         x = ->(index) { ordered.size == 1 ? 480.0 : 62.0 + index * 850.0 / (ordered.size - 1) }
         indexes = ordered.each_with_index.to_h { |run, index| [run.fetch("id"), index] }
-        series = groups.each_with_index.map do |((suite, agent, digest), values), index|
+        series = groups.map do |(suite, agent, digest), values|
+          color_index = Digest::SHA256.hexdigest(JSON.generate([suite, agent, digest])).to_i(16) % palette.length
           {
-            label: "#{suite} · #{agent} · #{digest.to_s[0, 8]}", color: palette[index % palette.length],
+            label: "#{suite} · #{agent} · #{digest.to_s[0, 8]}", color: palette[color_index],
             points: values.map do |run|
               { x: x.call(indexes.fetch(run.fetch("id"))).round(2), y: (218 - run.fetch("summary").fetch("score").to_f * 176).round(2), run: run }
             end

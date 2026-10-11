@@ -5,7 +5,7 @@ description: Preserve durable immutable evaluation history and correctly ordered
 
 # Persistent evaluation evidence
 
-Read .agents/AGENTS.md, store.rb, report.rb, and their consumer callsites. PostgreSQL through ActiveRecord is the evidence store, not a cache. Run IDs are INSERT-only. Use transactions, schema versions, bound parameters, and explicit unsupported-schema errors. Keep connection pools and migrations isolated from a host Rails application.
+Read .agents/AGENTS.md, app/models/ruby_llm/evaluations/, db/migrate/, engine.rb, report.rb, and consumer callsites. PostgreSQL through named ActiveRecord models is the evidence store, not a cache. Run IDs are INSERT-only. Share the normal host pool; use model associations and short atomic saves after provider calls. Install engine migrations into Rails hosts; only the standalone CLI establishes its own Base connection. No Store wrappers, anonymous model classes, separate pools, or automatic per-run migrations. Preserve legacy evidence and fail explicitly on unsupported schemas.
 
 History ordering is chronological with a deterministic tie breaker. Baselines match suite, agent identity, and suite fingerprint, and must precede a historical current run. Dataset/rubric changes are not regressions. Missing or invalid explicit baselines must fail before expensive agent execution when possible.
 

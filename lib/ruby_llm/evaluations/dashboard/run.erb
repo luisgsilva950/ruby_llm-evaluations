@@ -2,7 +2,7 @@
 <div class="page-heading"><div><p class="eyebrow">Run detail · <%= ui.h(run["agent"]) %></p><h1><%= ui.h(run["suite"]) %></h1><p class="lead"><time datetime="<%= ui.h(run["started_at"]) %>"><%= ui.h(ui.time(run["started_at"])) %></time></p></div><a class="button primary" href="<%= ui.h(ui.report_path(run["id"])) %>" download>Download JSON report</a></div>
 <% summary = run["summary"] %>
 <section class="stats-grid" aria-label="Run summary">
-  <article class="stat-card"><span class="stat-label">Quality score</span><strong><%= ui.score(summary["score"]) %></strong><span class="stat-caption">normalized across evaluations</span></article>
+  <article class="stat-card"><span class="stat-label">Quality score</span><strong><%= ui.score(summary["score"]) %></strong><span class="stat-caption">normalized across metrics</span></article>
   <article class="stat-card"><span class="stat-label">Case pass rate</span><strong><%= ui.percent(summary["pass_rate"]) %></strong><span class="stat-caption"><%= summary["passed"] %> of <%= summary["cases"] %> cases passed</span></article>
   <article class="stat-card"><span class="stat-label">Failures / errors</span><strong class="<%= summary["failed"].positive? || summary["errors"].positive? ? "danger-text" : "teal-text" %>"><%= summary["failed"] %> / <%= summary["errors"] %></strong><span class="stat-caption">failed cases / errored cases</span></article>
   <article class="stat-card"><span class="stat-label">Run duration</span><strong><%= ui.duration(summary["duration_ms"]) %></strong><span class="stat-caption"><%= summary["input_tokens"] %> in · <%= summary["output_tokens"] %> out tokens · <%= ui.cost(summary["cost"]) %></span></article>
@@ -16,8 +16,8 @@
 <section class="panel dimension-summary" aria-labelledby="dimensions-heading">
   <h2 id="dimensions-heading">Dimension quality</h2>
   <p class="section-description">Mean scores include scored assessments only; errors are reported separately, never as scored zero.</p>
-  <% dimensions = run["cases"].flat_map { |item| item["evaluations"] }.group_by { |evaluation| evaluation["name"] } %>
-  <% if dimensions.empty? %><p class="muted">No evaluation assessments were recorded.</p><% else %>
+  <% dimensions = run["cases"].flat_map { |item| item["metrics"] }.group_by { |evaluation| evaluation["name"] } %>
+  <% if dimensions.empty? %><p class="muted">No metric assessments were recorded.</p><% else %>
   <div class="table-scroll" tabindex="0" role="region" aria-label="Dimension quality table"><table><caption>Quality by evaluator</caption><thead><tr><th scope="col">Dimension</th><th scope="col">Mean score</th><th scope="col">Scored</th><th scope="col">Passed</th><th scope="col">Errors</th></tr></thead><tbody>
   <% dimensions.each do |name, assessments| %><% scored = assessments.reject { |evaluation| evaluation["error"] || evaluation["score"].nil? } %>
     <tr><th scope="row"><%= ui.h(name) %></th><td class="mono"><%= ui.score(scored.empty? ? nil : scored.sum { |evaluation| evaluation["score"] } / scored.length.to_f) %></td><td><%= scored.length %></td><td><%= scored.count { |evaluation| evaluation["passed"] } %></td><td><%= assessments.count { |evaluation| evaluation["error"] } %></td></tr>
@@ -29,14 +29,15 @@
 <article class="panel case-card" aria-labelledby="case-<%= index %>"><header class="case-header"><div><span class="eyebrow">Case <%= index + 1 %> · <%= ui.h(item["id"]) %></span><h3 id="case-<%= index %>"><%= ui.h(item["name"]) %></h3></div><span class="badge <%= %w[passed failed error].include?(item["status"]) ? item["status"] : "neutral" %>"><%= ui.h(item["status"].capitalize) %></span></header>
   <div class="case-telemetry"><span><%= ui.duration(item["duration_ms"]) %></span><span><%= item["input_tokens"].nil? ? "—" : item["input_tokens"] %> input tokens</span><span><%= item["output_tokens"].nil? ? "—" : item["output_tokens"] %> output tokens</span><span><%= ui.cost(item["cost"]) %></span></div>
   <% if item["error"] %><div class="error-alert" role="note"><strong><%= ui.h(item["error"]["class"]) %></strong><pre><%= ui.h(item["error"]["message"]) %></pre></div><% end %>
-  <div class="payload-grid"><section><h4>Input</h4><pre class="payload"><%= ui.h(ui.pretty(item["input"])) %></pre></section><section><h4>Expected</h4><pre class="payload"><%= ui.h(ui.pretty(item["expected"])) %></pre></section><section class="output-payload"><h4>Agent output</h4><pre class="payload"><%= ui.h(ui.pretty(item["output"])) %></pre></section></div>
+  <div class="payload-grid"><section><h4>Question</h4><pre class="payload"><%= ui.h(ui.pretty(item["question"])) %></pre></section><section><h4>Expected answer</h4><pre class="payload"><%= ui.h(ui.pretty(item["expected_answer"])) %></pre></section><section class="output-payload"><h4>Agent output</h4><pre class="payload"><%= ui.h(ui.pretty(item["output"])) %></pre></section></div>
+  <details class="metadata-details"><summary>Criteria</summary><pre class="payload"><%= ui.h(ui.pretty(item["criteria"])) %></pre></details>
   <div class="table-scroll evaluation-table" tabindex="0" role="region" aria-label="Evaluations for <%= ui.h(item["name"]) %>">
-    <table><caption>Evaluation assessments</caption><thead><tr><th scope="col">Evaluator</th><th scope="col">Score</th><th scope="col">Threshold</th><th scope="col">Result</th><th scope="col">Evidence</th></tr></thead><tbody>
-    <% item["evaluations"].each do |evaluation| %>
+    <table><caption>Metric assessments</caption><thead><tr><th scope="col">Evaluator</th><th scope="col">Score</th><th scope="col">Threshold</th><th scope="col">Result</th><th scope="col">Evidence</th></tr></thead><tbody>
+    <% item["metrics"].each do |evaluation| %>
       <tr><td><strong><%= ui.h(evaluation["name"]) %></strong></td><td class="mono"><%= ui.score(evaluation["error"] ? nil : evaluation["score"]) %></td><td class="mono"><%= ui.score(evaluation["threshold"]) %></td><td><span class="badge <%= evaluation["error"] ? "error" : evaluation["passed"] ? "passed" : "failed" %>"><%= evaluation["error"] ? "Error" : evaluation["passed"] ? "Passed" : "Failed" %></span></td>
         <td class="evaluation-reason"><% if evaluation["error"] %><strong class="danger-text"><%= ui.h(evaluation["error"]["class"]) %></strong><br><%= ui.h(evaluation["error"]["message"]) %><% elsif evaluation["reason"] %><%= ui.h(evaluation["reason"]) %><% else %><span class="muted">No reason provided</span><% end %></td></tr>
     <% end %>
-    <% if item["evaluations"].empty? %><tr><td colspan="5" class="muted">No evaluations ran for this case.</td></tr><% end %>
+    <% if item["metrics"].empty? %><tr><td colspan="5" class="muted">No metrics ran for this case.</td></tr><% end %>
     </tbody></table>
   </div>
   <div class="payload-grid">

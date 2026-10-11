@@ -9,11 +9,11 @@ class ActionGroupIntegrationTest < Minitest::Test
 
   def setup
     @sandbox = PostgresSandbox.new
-    @store = E::Store.new(@sandbox.database_url)
+
   end
 
   def teardown
-    @store.close
+
     @sandbox.close
   end
 
@@ -24,9 +24,9 @@ class ActionGroupIntegrationTest < Minitest::Test
   def run_actions(actual, expected)
     suite = E.define("order actions", agent: ->(_input) { E::Response.new(output: "Your order is ready.", actions: actual) }) do
       evaluate :action_group, using: E::Evaluators.action_group
-      test "check order", input: "Track order 42", expected_actions: expected
+      question "Track order 42", expected_actions: expected, name: "check order"
     end
-    E::Runner.new(store: @store).run(suite)
+    E::Runner.new.run(suite).snapshot
   end
 
   def test_group_arguments_sequence_and_unexpected_calls_are_quality_evidence
@@ -42,10 +42,10 @@ class ActionGroupIntegrationTest < Minitest::Test
       [[lookup, status, action("cancel", { id: 42 })], 2.0 / 3]
     ].each do |trace, expected_score|
       run = run_actions(trace, [lookup, status])
-      persisted = @store.find(run["id"])
+      persisted = E::Run.find(run["id"]).snapshot
       assert_equal "failed", persisted["cases"][0]["status"]
-      assert_in_delta expected_score, persisted["cases"][0]["evaluations"][0]["score"], 1e-12
-      comparison = E::Report.new(run, baseline: correct).comparison
+      assert_in_delta expected_score, persisted["cases"][0]["metrics"][0]["score"], 1e-12
+      comparison = E::Report.new(E::Run.find(run["id"]), baseline: E::Run.find(correct["id"])).comparison
       assert_equal true, comparison["regressed"]
       assert_equal "action_group", comparison["regressions"][0]["evaluator"]
     end
@@ -55,11 +55,11 @@ class ActionGroupIntegrationTest < Minitest::Test
     observed_empty = run_actions([], [])
     missing = run_actions(nil, [])
     assert_equal "passed", observed_empty["cases"][0]["status"]
-    assert_equal [], @store.find(observed_empty["id"])["cases"][0]["actions"]
+    assert_equal [], E::Run.find(observed_empty["id"]).snapshot["cases"][0]["actions"]
     assert_equal "error", missing["cases"][0]["status"]
-    assert_nil @store.find(missing["id"])["cases"][0]["actions"]
-    assert_includes missing["cases"][0]["evaluations"][0]["error"]["message"], "action trace missing"
-    assert E::Report.new(missing, baseline: observed_empty).comparison["regressed"]
+    assert_nil E::Run.find(missing["id"]).snapshot["cases"][0]["actions"]
+    assert_includes missing["cases"][0]["metrics"][0]["error"]["message"], "action trace missing"
+    assert E::Report.new(E::Run.find(missing["id"]), baseline: E::Run.find(observed_empty["id"])).comparison["regressed"]
   end
 
   def test_unrequested_actions_fail_even_with_a_correct_answer
