@@ -114,6 +114,27 @@ class RailsMountTest < Minitest::Test
     assert_equal "/assets/dashboard.css", Nokogiri::HTML(root.body).at_css('link[rel="stylesheet"]')["href"]
   end
 
+  def test_unjudged_runs_keep_outputs_and_do_not_plot_fabricated_scores
+    suite = E.define("Unjudged <support>", agent: ->(_) { "30 days" }) do
+      question "Return deadline?", expected_answer: "30 days"
+    end
+    E.run(suite)
+    current = E.run(suite)
+    history = @http.get("/evaluations/?suite=#{URI.encode_www_form_component(suite.name)}")
+    assert_equal 200, history.status
+    document = Nokogiri::HTML(history.body)
+    assert_empty document.css(".trend-chart .chart-point")
+    assert_empty document.css(".stat-card strong").select { |value| value.text == "0.000" || value.text == "100.0%" }
+    detail = @http.get("/evaluations/runs/#{current.id}")
+    assert_equal 200, detail.status
+    assert_equal "30 days", Nokogiri::HTML(detail.body).at_css(".output-payload pre").text
+    exported = JSON.parse(@http.get("/evaluations/api/runs/#{current.id}?download=1").body)
+    assert_nil exported["summary"]["score"]
+    assert_nil exported["comparison"]["score_delta"]
+    assert_equal "not_evaluated", exported["cases"][0]["status"]
+    assert_empty exported["cases"][0]["metrics"]
+  end
+
   def test_run_shares_host_pool_and_normal_model_associations
     pool = ActiveRecord::Base.connection_pool
     connection = ActiveRecord::Base.connection

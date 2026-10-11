@@ -34,9 +34,14 @@ class LocalLLMServer
         end
         prompt = payload.fetch("messages").last.fetch("content")
         accuracy = prompt.include?("Score factual semantic agreement")
-        content = failure == :malformed ? "not valid JSON" : JSON.generate(
-          score: accuracy ? 0.95 : 1.0,
-          reason: accuracy ? "Equivalent thirty-day return policy." : "Directly addresses the return request.")
+        content = if failure.is_a?(Hash)
+                    JSON.generate(failure)
+                  elsif failure == :malformed
+                    "not valid JSON"
+                  else
+                    JSON.generate(score: accuracy ? 0.95 : 1.0,
+                      reason: accuracy ? "Equivalent thirty-day return policy." : "Directly addresses the return request.")
+                  end
         response.body = completion(payload, { role: "assistant", content: content }, 7, 3)
       elsif payload.fetch("messages").last.fetch("role") == "tool"
         response.body = completion(payload, { role: "assistant", content: ANSWER }, 20, 5)

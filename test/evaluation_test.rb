@@ -121,23 +121,6 @@ class EvaluationTest < Minitest::Test
     assert_equal build.call({ prompt: "hello", count: 2 }).digest, build.call({ count: 2, prompt: "hello" }).digest
   end
 
-  def test_judge_output_is_scored_and_malformed_json_is_an_evaluator_error
-    judge = ->(_prompt) { '{"score":0.8,"reason":"Factually correct"}' }
-    evaluator = E::Evaluators.llm_judge(judge: judge, rubric: "Factual accuracy")
-    run = run_suite(agent: ->(_input) { "Paris" }) do
-      evaluate :judge, using: evaluator, threshold: 0.7
-      question "France?", expected_answer: "Paris", name: "capital"
-    end
-    assert_equal "passed", run["cases"].first["status"]
-    assert_equal "Factually correct", run["cases"].first["metrics"].first["reason"]
-    invalid = E::Evaluators.llm_judge(judge: ->(_prompt) { "not JSON" }, rubric: "Accuracy")
-    run = run_suite(agent: ->(_input) { "Paris" }) do
-      evaluate :judge, using: invalid
-      question "France?", name: "capital"
-    end
-    assert_equal "error", run["cases"].first["status"]
-    assert_equal "JSON::ParserError", run["cases"].first["metrics"].first["error"]["class"]
-  end
   def test_fingerprint_includes_question_criteria_metadata_and_actions
     build = lambda do |criteria, metadata, actions|
       E.define("identity", agent: ->(value) { value }) do
@@ -151,20 +134,20 @@ class EvaluationTest < Minitest::Test
     refute_equal base, build.call({ quality: 0.9 }, { important_facts: ["fact"] }, [{ group: "orders", name: "lookup", arguments: {} }]).digest
   end
 
-  def test_standard_defaults_use_shared_judge_and_never_pay_by_default
-    previous = E.judge
-    E.judge = nil
-    assert_raises(E::DefinitionError) do
-      E.define("unconfigured", agent: ->(_) { "answer" }) { question "prompt", expected_answer: "answer" }
+  def test_without_a_judge_preserves_answers_without_fabricating_quality
+    suite = E.define("unconfigured", agent: ->(_) { "30 days" }) do
+      question "Return deadline?", expected_answer: "30 days"
     end
-    prompts = []
-    E.judge = ->(prompt) { prompts << prompt; { score: 1, reason: "scripted protocol fixture" } }
-    suite = E.define("configured", agent: ->(_) { "answer" }) { question "prompt", expected_answer: "answer" }
     run = E.run(suite)
-    assert_equal %w[semantic_accuracy answer_relevancy], run.case_results.first.metric_results.map(&:name)
-    assert_equal [0.9, 0.9], run.case_results.first.metric_results.map(&:threshold)
-    assert_equal 2, prompts.size
-  ensure
-    E.judge = previous
+    item = run.case_results.first
+    assert_equal "not_evaluated", item.status
+    assert_equal "30 days", item.output
+    assert_empty item.metric_results
+    assert_nil run.summary["score"]
+    assert_nil run.summary["pass_rate"]
+    assert_equal 0, run.summary["passed"]
+    assert_equal 1, run.summary["not_evaluated"]
+    assert_equal 0, run.summary["evaluated_cases"]
+    assert_equal({ "semantic_accuracy" => 0.9, "answer_relevancy" => 0.9 }, item.criteria)
   end
 end

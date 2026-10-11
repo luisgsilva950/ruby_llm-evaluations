@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 require "minitest/autorun"
+require "tmpdir"
+require "nokogiri"
 require_relative "postgres_helper"
 require_relative "../lib/ruby_llm/evaluations"
 
@@ -102,5 +104,23 @@ class ModelReportTest < Minitest::Test
     assert_equal report.comparison, serialized["comparison"]
     refute_includes report.to_html, "<script>"
     assert_includes report.to_html, "&lt;script&gt;"
+  end
+
+  def test_export_writes_parseable_evidence_and_rejects_unsupported_formats_before_overwriting
+    run = run_record
+    report = E::Report.new(run)
+    Dir.mktmpdir("report-export") do |directory|
+      path = File.join(directory, "agent.json")
+      assert_equal path, report.export(path)
+      data = JSON.parse(File.read(path))
+      assert_equal run.id, data.fetch("id")
+      assert_equal "4", data.fetch("cases").first.fetch("expected_answer")
+      assert_equal 1.0, data.fetch("cases").first.fetch("metrics").first.fetch("score")
+      assert_raises(ArgumentError) { report.export(path, format: :unknown) }
+      assert_equal data, JSON.parse(File.read(path))
+      html = File.join(directory, "agent")
+      report.export(html, format: :html)
+      assert_equal run.id, Nokogiri::HTML(File.read(html)).at_css("section dd").text
+    end
   end
 end

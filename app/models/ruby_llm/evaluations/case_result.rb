@@ -12,7 +12,7 @@ module RubyLLM
 
       validates :case_id, :name, presence: true
       validates :position, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
-      validates :status, inclusion: { in: %w[passed failed error] }
+      validates :status, inclusion: { in: %w[passed failed error not_evaluated] }
       validates :duration_ms, numericality: { greater_than_or_equal_to: 0 }
       validate :validate_json
 

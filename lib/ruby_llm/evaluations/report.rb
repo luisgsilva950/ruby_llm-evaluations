@@ -29,6 +29,16 @@ module RubyLLM
       end
 
       attr_reader :run
+      def export(path, format: nil)
+        path = File.path(path)
+        format ||= { ".html" => "html", ".htm" => "html", ".json" => "json", ".md" => "markdown",
+                     ".markdown" => "markdown", ".txt" => "text", ".text" => "text" }[File.extname(path).downcase]
+        unless %w[text markdown html json].include?(format.to_s)
+          raise ArgumentError, "report format must be text, markdown, html, or json"
+        end
+        File.write(path, public_send("to_#{format}"))
+        path
+      end
 
       def to_json(*args)
         @run.merge("comparison" => comparison).to_json(*args)
@@ -104,8 +114,8 @@ module RubyLLM
         {
           "baseline_id" => @baseline.fetch("id"), "current_id" => @run.fetch("id"),
           "compatible" => true, "regressed" => !regressions.empty?,
-          "pass_rate_delta" => current_summary.fetch("pass_rate") - baseline_summary.fetch("pass_rate"),
-          "score_delta" => current_summary.fetch("score") - baseline_summary.fetch("score"),
+          "pass_rate_delta" => score_delta(baseline_summary["pass_rate"], current_summary["pass_rate"]),
+          "score_delta" => score_delta(baseline_summary["score"], current_summary["score"]),
           "regressions" => regressions, "improvements" => improvements
         }
       end
@@ -174,9 +184,13 @@ module RubyLLM
 
       def case_score(item)
         return 0.0 if agent_error?(item)
+        return nil if item["status"] == "not_evaluated"
 
         scores = item.fetch("metrics").map { |evaluation| evaluation_score(evaluation) || 0.0 }
         scores.empty? ? (item["status"] == "passed" ? 1.0 : 0.0) : scores.sum.to_f / scores.length
+      end
+      def score_delta(before, after)
+        after - before unless before.nil? || after.nil?
       end
 
       def change(before, after, evaluator, old_score, new_score, reason)

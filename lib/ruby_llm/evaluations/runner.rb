@@ -53,9 +53,11 @@ module RubyLLM
           return result
         end
         result["duration_ms"] = milliseconds(started)
-        context = Context.new(question, response)
+        context = Context.new(question, response, judge: suite.judge)
         result["metrics"] = question.evaluators.map { |evaluator| assess(evaluator, response.output, context) }
-        result["status"] = if result["metrics"].any? { |item| item["error"] }
+        result["status"] = if result["metrics"].empty?
+                             "not_evaluated"
+                           elsif result["metrics"].any? { |item| item["error"] }
                              "error"
                            elsif result["metrics"].all? { |item| item["passed"] }
                              "passed"
@@ -92,16 +94,18 @@ module RubyLLM
 
       def summarize(results, duration)
         counts = results.group_by { |item| item["status"] }.transform_values(&:size)
+        evaluated = results.reject { |item| item["status"] == "not_evaluated" }
         # An agent error has no assessments; its case quality is zero, not missing data.
-        scores = results.map do |item|
+        scores = evaluated.map do |item|
           metrics = item["metrics"]
           metrics.empty? ? 0.0 : metrics.sum { |evaluation| evaluation["score"] || 0.0 } / metrics.size
         end
         {
           "cases" => results.size, "passed" => counts.fetch("passed", 0),
           "failed" => counts.fetch("failed", 0), "errors" => counts.fetch("error", 0),
-          "pass_rate" => counts.fetch("passed", 0).fdiv(results.size),
-          "score" => scores.sum / results.size, "duration_ms" => duration,
+          "not_evaluated" => counts.fetch("not_evaluated", 0), "evaluated_cases" => evaluated.size,
+          "pass_rate" => evaluated.empty? ? nil : counts.fetch("passed", 0).fdiv(evaluated.size),
+          "score" => scores.empty? ? nil : scores.sum / scores.size, "duration_ms" => duration,
           "input_tokens" => results.sum { |item| item["input_tokens"] || 0 },
           "output_tokens" => results.sum { |item| item["output_tokens"] || 0 },
           "cost" => results.sum { |item| item["cost"] || 0.0 }

@@ -15,11 +15,14 @@ module RubyLLM
     class Suite
       attr_reader :name, :agent, :agent_name, :version, :cases, :evaluators, :judge
 
-      def initialize(name, agent:, judge: RubyLLM::Evaluations.judge, agent_name: nil, version: "1")
+      def initialize(name, agent:, judge: nil, agent_name: nil, version: "1")
         @name = nonempty(name, "suite name")
         @agent_name = nonempty(agent_name || name, "agent name")
         @version = nonempty(version, "version")
         raise DefinitionError, "agent must respond to call" unless agent.respond_to?(:call)
+        unless judge.nil? || (judge.is_a?(Class) && defined?(::RubyLLM::Agent) && judge <= ::RubyLLM::Agent)
+          raise DefinitionError, "judge must be a RubyLLM::Agent class"
+        end
         @agent = agent
         @judge = judge
         @cases = []
@@ -63,9 +66,10 @@ module RubyLLM
                                      else
                                        evaluators.to_h { |definition| [definition.name, definition.threshold] }
                                      end
-          definitions = criteria.map do |metric_name, threshold|
+          definitions = criteria.filter_map do |metric_name, threshold|
             custom = evaluators.find { |definition| definition.name == metric_name }
             callable = custom ? custom.callable : standard_metric(metric_name)
+            next if judge.nil? && callable.is_a?(JudgeMetric)
             Evaluator.new(name: metric_name, callable: callable, threshold: threshold).freeze
           end.freeze
           Question.new(**item.to_h, criteria: immutable_copy(criteria), evaluators: definitions).freeze
@@ -76,7 +80,12 @@ module RubyLLM
       def digest
         validate!
         definition = { "name" => name, "version" => version,
-                       "cases" => cases.map { |item| definition_value(item.to_h) } }
+                       "cases" => cases.map do |item|
+                         data = item.to_h
+                         skipped = item.criteria.keys - item.evaluators.map(&:name)
+                         data = data.merge(skipped_metrics: skipped) unless skipped.empty?
+                         definition_value(data)
+                       end }
         Digest::SHA256.hexdigest(JSON.generate(Data.canonical(definition)))
       end
 
@@ -85,10 +94,7 @@ module RubyLLM
       def standard_metric(name)
         case name
         when "semantic_accuracy", "answer_relevancy"
-          unless judge.respond_to?(:call)
-            raise DefinitionError, "#{name} requires a callable judge; configure RubyLLM::Evaluations.judge or pass judge: to define"
-          end
-          Evaluators.public_send(name, judge: judge)
+          Evaluators.public_send(name)
         when "action_group"
           Evaluators.action_group
         else

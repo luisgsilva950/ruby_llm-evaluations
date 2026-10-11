@@ -3,6 +3,7 @@
 require_relative "evaluations/version"
 require_relative "evaluations/data"
 require_relative "evaluations/actions"
+require_relative "evaluations/judge_metric"
 require_relative "evaluations/evaluators"
 require_relative "evaluations/suite"
 require_relative "evaluations/response"
@@ -23,11 +24,7 @@ module RubyLLM
     MIGRATIONS_PATH = File.expand_path("../../db/migrate", __dir__).freeze
     autoload :Engine, File.expand_path("evaluations/engine", __dir__)
 
-    class << self
-      attr_accessor :judge
-    end
-
-    def self.define(name, agent:, judge: self.judge, agent_name: nil, version: "1", &block)
+    def self.define(name, agent:, judge: nil, agent_name: nil, version: "1", &block)
       Suite.new(name, agent: agent, judge: judge, agent_name: agent_name, version: version).tap do |suite|
         suite.instance_eval(&block) if block
         suite.validate!

@@ -34,6 +34,8 @@ Source paths are inside `lib/ruby_llm/evaluations/` unless otherwise noted.
 - Any object responding to `call(question)` can be an agent. Provider configuration and credentials stay in consumer code.
 - Evaluators receive `(output, context)`. The context exposes case data and the full response. Return a Boolean, finite score in [0, 1], or `Assessment`. Thresholds are inclusive.
 - Semantic accuracy compares factual meaning with a reference. Relevancy measures response to the actual user request. Neither is a synonym for lexical matching.
+- The optional judge is a RubyLLM::Agent class supplied to the Suite constructor, instantiated fresh per assessment; never add global judge configuration or per-evaluator judge wrappers. Without a judge, skip LLM metrics. No computed metrics means not_evaluated with null quality/pass rate, never a passing or zero-quality substitute. Compare only equivalent computed metric sets.
+- Report#export owns file writing; callers and CLI must not assemble their own File.write(report.to_html) workflow.
 - Action groups are observed tool/API calls: group, action name, arguments, and order. Missing instrumentation is an error, not evidence of no action. Unexpected calls must reduce quality.
 - Agent/evaluator failures are recorded, never converted into passing checks. Other cases/checks continue.
 - Preserve caller-owned input and Ruby symbol/string distinctions. Persist JSON-portable data; never silently stringify unsupported objects.

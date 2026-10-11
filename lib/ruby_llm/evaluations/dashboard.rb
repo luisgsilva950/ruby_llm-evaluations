@@ -224,14 +224,15 @@ module RubyLLM
       end
 
       def percent(value)
-        format("%.1f%%", value.to_f * 100)
+        value.nil? ? "Not evaluated" : format("%.1f%%", value * 100)
       end
 
       def score(value)
-        value.nil? ? "—" : format("%.3f", value)
+        value.nil? ? "Not evaluated" : format("%.3f", value)
       end
 
       def delta(value, percentage: false)
+        return "Not evaluated" if value.nil?
         format(percentage ? "%+.1f pp" : "%+.3f", value.to_f * (percentage ? 100 : 1))
       end
 
@@ -249,7 +250,7 @@ module RubyLLM
 
       def trend(runs)
         ordered = runs.reverse
-        groups = ordered.group_by { |run| [run["suite"], run["agent"], run["suite_digest"]] }
+        groups = ordered.reject { |run| run["summary"]["score"].nil? }.group_by { |run| [run["suite"], run["agent"], run["suite_digest"]] }
         palette = %w[#087f8c #3657a3 #a85c22 #8b4f94 #377746 #a63756]
         x = ->(index) { ordered.size == 1 ? 480.0 : 62.0 + index * 850.0 / (ordered.size - 1) }
         indexes = ordered.each_with_index.to_h { |run, index| [run.fetch("id"), index] }

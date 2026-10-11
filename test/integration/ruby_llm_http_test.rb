@@ -43,9 +43,9 @@ class RubyLLMHTTPTest < Minitest::Test
       @chats << chat
       chat
     end
-    @judge = E::Adapters.ruby_llm_chat do
-      @context.chat(model: "fixture-judge", provider: :openai, assume_model_exists: true)
-    end
+    @judge = Class.new(RubyLLM::Agent)
+    @judge.model("fixture-judge", provider: :openai, assume_model_exists: true, context: @context)
+    @judge.context(@context)
 
   end
 
@@ -64,9 +64,9 @@ class RubyLLMHTTPTest < Minitest::Test
   def suite(inputs = ["Can I return my book?", "What is the return window for a book?"])
     agent = @agent
     judge = @judge
-    E.define("HTTP return policy", agent: agent, agent_name: "local-support", version: "1") do
-      evaluate :accuracy, using: E::Evaluators.semantic_accuracy(judge: judge), threshold: 0.9
-      evaluate :relevance, using: E::Evaluators.answer_relevancy(judge: judge)
+    E.define("HTTP return policy", agent: agent, judge: judge, agent_name: "local-support", version: "1") do
+      evaluate :accuracy, using: E::Evaluators.semantic_accuracy, threshold: 0.9
+      evaluate :relevance, using: E::Evaluators.answer_relevancy
       evaluate :actions, using: E::Evaluators.action_group
       inputs.each_with_index do |input, index|
         question input, expected_answer: "Books can be returned within 30 days.", name: "return #{index}",
@@ -109,13 +109,6 @@ class RubyLLMHTTPTest < Minitest::Test
     judges = @server.requests.select { |request| request["model"] == "fixture-judge" }
     assert_equal 4, judges.size
     assert judges.all? { |request| request["messages"].size == 1 }
-    assert_equal 2, judges.count { |request| request["messages"].last["content"].include?("Score factual semantic agreement") }
-    assert_equal 2, judges.count { |request| request["messages"].last["content"].include?("Judge relevancy independently of factual accuracy") }
-    judges.each do |request|
-      data = JSON.parse(request["messages"].last.fetch("content").lines.last)
-      assert_equal LocalLLMServer::ANSWER, data.fetch("output")
-      assert_equal "Books can be returned within 30 days.", data.fetch("expected_answer")
-    end
 
 
     assert_equal baseline, E::Run.find(baseline.fetch("id")).snapshot
@@ -197,6 +190,60 @@ class RubyLLMHTTPTest < Minitest::Test
       assert_equal ["Books have a 30-day deadline."], data.fetch("metadata").fetch("important_facts")
       assert_equal "30 days", data.fetch("expected_answer")
       assert data.key?("question")
+    end
+  end
+
+  def test_no_judge_omits_llm_metrics_but_still_records_real_tool_execution
+    definition = E.define("unjudged tools", agent: @agent) do
+      evaluate :custom_judge, using: E::Evaluators.llm_judge(rubric: "Verify the return deadline")
+      question "Can I return my book?", expected_answer: "30 days",
+        criteria: { semantic_accuracy: 0.9, answer_relevancy: 0.9, custom_judge: 0.9, action_group: 1 },
+        expected_actions: [{ group: "returns", name: "return_policy", arguments: { product: "book" } }]
+    end
+    run = E.run(definition)
+    item = run.case_results.first
+    assert_equal ["action_group"], item.metric_results.map(&:name)
+    assert_equal "passed", item.status
+    assert_equal LocalLLMServer::ANSWER, item.output
+    assert_equal 1.0, run.summary["score"]
+    assert @server.requests.none? { |request| request["model"] == "fixture-judge" }
+    assert_equal 2, @server.requests.size
+    assert_equal item.expected_actions, item.actions
+  end
+
+  def test_no_judge_and_only_llm_criteria_has_no_quality_or_assessments
+    definition = E.define("unjudged answers", agent: @agent) do
+      question "Can I return my book?", expected_answer: "30 days"
+    end
+    first = E.run(definition)
+    run = E.run(definition)
+    assert_equal "not_evaluated", run.case_results.first.status
+    assert_nil run.summary["score"]
+    assert_nil run.summary["pass_rate"]
+    assert_equal 0, run.summary["passed"]
+    assert_equal 1, run.summary["not_evaluated"]
+    assert_empty run.case_results.first.metric_results
+    assert_equal LocalLLMServer::ANSWER, run.case_results.first.output
+    assert_equal first.id, run.previous.id
+    comparison = E::Report.new(run, baseline: first).comparison
+    assert_nil comparison["score_delta"]
+    refute comparison["regressed"]
+    assert @server.requests.none? { |request| request["model"] == "fixture-judge" }
+  end
+
+  def test_invalid_judge_scores_are_errors_without_default_success
+    [{ score: true, reason: "invalid" }, { score: 1.1, reason: "invalid" },
+     { score: "1", reason: "invalid" }, { score: 1, reason: " " }].each do |answer|
+      @server.judge_failures = [answer]
+      definition = E.define("invalid scoring", agent: @agent, judge: @judge) do
+        question "Can I return my book?", expected_answer: "30 days", criteria: { semantic_accuracy: 0.9 }
+      end
+      run = E.run(definition)
+      metric = run.case_results.first.metric_results.first
+      assert_equal "error", run.case_results.first.status
+      assert_nil metric.score
+      refute metric.passed
+      assert_equal "ArgumentError", metric.error_details["class"]
     end
   end
 

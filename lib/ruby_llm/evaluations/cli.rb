@@ -126,8 +126,10 @@ module RubyLLM
         @out.puts("RUN ID                                SUITE / AGENT                 PASS RATE   SCORE   STARTED")
         runs.each do |run|
           summary = run.summary
-          @out.puts(format("%-36s  %-28s %6.1f%%   %.3f   %s", run["id"], "#{run['suite']} / #{run['agent']}",
-                           summary["pass_rate"] * 100, summary["score"], run["started_at"]))
+          pass_rate = summary["pass_rate"].nil? ? "—" : format("%.1f%%", summary["pass_rate"] * 100)
+          score = summary["score"].nil? ? "—" : format("%.3f", summary["score"])
+          @out.puts(format("%-36s  %-28s %8s   %5s   %s", run["id"], "#{run['suite']} / #{run['agent']}",
+                           pass_rate, score, run["started_at"]))
         end
         0
       end
@@ -171,12 +173,11 @@ module RubyLLM
       end
 
       def emit(report, options)
-        content = report.public_send("to_#{options[:format]}")
         if options[:output]
-          File.write(options[:output], content)
+          report.export(options[:output], format: options[:format])
           @out.puts("Report written to #{options[:output]}")
         else
-          @out.puts(content)
+          @out.puts(report.public_send("to_#{options[:format]}"))
         end
       end
 
