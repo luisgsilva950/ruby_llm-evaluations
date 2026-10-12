@@ -23,13 +23,22 @@ module RubyLLM
       end
 
       def self.capture
-        ResponseComponents.collect do |components|
+        capture = ResponseComponentCapture.new
+        capture.around do
           response = normalize(yield)
-          next response if components.empty?
-
-          new(output: response.output, metadata: response.metadata, actions: response.actions,
-              input_tokens: response.input_tokens, output_tokens: response.output_tokens, cost: response.cost,
-              components: components + (response.components || []))
+          if capture.components.empty?
+            response
+          else
+            new(
+              output: response.output,
+              input_tokens: response.input_tokens,
+              output_tokens: response.output_tokens,
+              cost: response.cost,
+              metadata: response.metadata,
+              actions: response.actions,
+              components: capture.components + (response.components || [])
+            )
+          end
         end
       end
 

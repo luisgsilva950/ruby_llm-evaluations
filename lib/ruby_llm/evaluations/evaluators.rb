@@ -37,8 +37,8 @@ module RubyLLM
       end
 
       def response_components(protocol:, version: nil, &check)
-        ResponseComponents.label(protocol, "component protocol")
-        ResponseComponents.label(version, "component version") unless version.nil?
+        ResponseComponents.validate_label!(protocol, "component protocol")
+        ResponseComponents.validate_label!(version, "component version") unless version.nil?
         raise ArgumentError, "provide a response component check block" unless check
         lambda do |_output, context|
           components = context.response.components

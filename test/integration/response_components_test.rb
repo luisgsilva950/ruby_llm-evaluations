@@ -27,12 +27,15 @@ class ResponseComponentsTest < Minitest::Test
     def execute(product:) = halt(super)
   end
 
-  class MutableTool < RubyLLM::Tool
+  class MutableTool
     prepend E::ResponseComponentTool
-    def response_component = { protocol: "card" }
     attr_accessor :payload
-    def execute(label:)
-      label.replace("mutated argument")
+
+    def name = "mutable_tool"
+    def response_component = { protocol: "card" }
+
+    def call(arguments)
+      arguments.fetch(:label).replace("mutated argument")
       payload
     end
   end
@@ -154,7 +157,15 @@ class ResponseComponentsTest < Minitest::Test
   end
 
   def test_explicit_nontext_components_errors_and_later_cases
-    values = [Object.new, [{ protocol: "a2ui", payload: Float::NAN }], [{ protocol: "a2ui", payload: { "text" => "雪<script>alert(1)</script>" } }]]
+    values = [
+      Object.new,
+      [{ protocol: "a2ui", payload: Float::NAN }],
+      [{ protocol: "a2ui" }],
+      [{ protocol: "", payload: nil }],
+      [{ protocol: "a2ui", payload: nil, arguments: [] }],
+      [{ protocol: "a2ui", payload: nil, unexpected: true }],
+      [{ protocol: "a2ui", payload: { "text" => "雪<script>alert(1)</script>" } }]
+    ]
     agent = ->(index) { E::Response.new(output: nil, components: values.fetch(index)) }
     check = E::Evaluators.response_components(protocol: "a2ui") { |items, _context| items.first.fetch("payload").fetch("text").start_with?("雪") }
     definition = E.define("Nontext evidence", agent: agent) do
@@ -162,7 +173,7 @@ class ResponseComponentsTest < Minitest::Test
       values.each_index { |index| question index, name: "component #{index}" }
     end
     run = E.run(definition)
-    assert_equal %w[error error passed], run.case_results.map(&:status)
+    assert_equal %w[error error error error error error passed], run.case_results.map(&:status)
     assert_nil run.case_results.last.output
     html = E::Report.new(run).to_html
     refute_includes html, "<script>alert(1)</script>"

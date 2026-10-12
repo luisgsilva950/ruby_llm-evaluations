@@ -104,21 +104,25 @@ Score UI/protocol payloads separately from text. Add this to an **existing tool 
 
 ```ruby
 prepend RubyLLM::Evaluations::ResponseComponentTool
-def response_component = { protocol: "a2ui", version: "0.8" }
+
+def response_component
+  { protocol: "a2ui", version: "0.8" }
+end
 ```
 
 Marked tools keep their original return values and callbacks. During `Evaluations.run` or the RubyLLM chat adapter, results are captured in call order with protocol, declared version, tool name, arguments, and payload; explicit final-response components follow them. Evaluators read `context.response.components`; history and reports retain the evidence without new tables or migrations. Outside a run, use `Response.capture { agent.call(question) }`.
 
 ```ruby
-# Inside a suite; expected_ui_messages in question metadata is parsed JSON.
-evaluate :a2ui, using: RubyLLM::Evaluations::Evaluators.response_components(
-  protocol: "a2ui", version: "0.8"
-) { |components, context|
-  messages = components.flat_map do |item|
-    item.fetch("payload").lines.map { |line| JSON.parse(line) }
+# Build the check separately; expected_ui_messages is parsed JSON in question metadata.
+ui_check = RubyLLM::Evaluations::Evaluators.response_components(protocol: "a2ui", version: "0.8") do |components, context|
+  actual_messages = components.flat_map do |component|
+    component.fetch("payload").lines.map { |line| JSON.parse(line) }
   end
-  messages == context.metadata.fetch(:expected_ui_messages)
-}
+  actual_messages == context.metadata.fetch(:expected_ui_messages)
+end
+
+# Inside your suite:
+evaluate :a2ui, using: ui_check
 ```
 
 The evaluator rejects missing components, an empty matching set, or a wrong declared version before your check runs. Your block validates the schema and application contract; the gem does **not** certify A2UI compliance or render supplied UI. Payloads preserve their original JSON-compatible shape; JSON/JSONL strings are not automatically parsed.
