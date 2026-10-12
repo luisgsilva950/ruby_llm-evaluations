@@ -6,51 +6,52 @@ class CreateAgentEvaluationHistory < ActiveRecord::Migration[7.1]
   METRICS = "ruby_llm_evaluations_metric_results"
 
   def change
-    raise ActiveRecord::MigrationError, "evaluation history requires PostgreSQL" unless connection.adapter_name == "PostgreSQL"
+    json_type = connection.adapter_name == "PostgreSQL" ? :jsonb : :json
+    table_options = connection.adapter_name == "Mysql2" ? { charset: "utf8mb4", collation: "utf8mb4_0900_bin" } : {}
 
-    create_table RUNS, id: :string do |table|
-      table.bigserial :sequence, null: false
+    create_table RUNS, primary_key: :sequence, **table_options do |table|
+      table.string :id, null: false
       table.string :suite, null: false
       table.string :agent, null: false
       table.string :version, null: false, default: "1"
-      table.string :suite_digest, null: false
-      table.column :started_at, :timestamptz, null: false, precision: 6
-      table.column :finished_at, :timestamptz, null: false, precision: 6
+      table.string :suite_digest, limit: 64, null: false
+      table.datetime :started_at, null: false, precision: 6
+      table.datetime :finished_at, null: false, precision: 6
       table.string :status, null: false
-      table.jsonb :metadata, null: false, default: {}
-      table.jsonb :summary, null: false
+      table.column :metadata, json_type, null: false
+      table.column :summary, json_type, null: false
       table.timestamps precision: 6
     end
-    add_index RUNS, :sequence, unique: true
+    add_index RUNS, :id, unique: true
     add_index RUNS, [:started_at, :sequence], order: { started_at: :desc, sequence: :desc }, name: "rle_runs_recent"
     add_index RUNS, [:suite, :agent, :suite_digest, :started_at, :sequence],
               order: { started_at: :desc, sequence: :desc }, name: "rle_runs_comparable"
 
-    create_table CASES do |table|
-      table.references :run, type: :string, null: false, foreign_key: { to_table: RUNS }
+    create_table CASES, **table_options do |table|
+      table.references :run, type: :string, null: false, foreign_key: { to_table: RUNS, primary_key: :id }
       table.integer :position, null: false
       table.string :case_id, null: false
       table.text :name, null: false
-      table.jsonb :question
-      table.jsonb :expected_answer
-      table.jsonb :expected_actions
-      table.jsonb :minimum_scores, null: false, default: {}
-      table.jsonb :metadata, null: false, default: {}
-      table.jsonb :output
+      table.column :question, json_type
+      table.column :expected_answer, json_type
+      table.column :expected_actions, json_type
+      table.column :minimum_scores, json_type, null: false
+      table.column :metadata, json_type, null: false
+      table.column :output, json_type
       table.string :status, null: false
       table.float :duration_ms, null: false
       table.bigint :input_tokens
       table.bigint :output_tokens
       table.float :cost
-      table.jsonb :actions
-      table.jsonb :response_metadata
-      table.jsonb :error_details
+      table.column :actions, json_type
+      table.column :response_metadata, json_type
+      table.column :error_details, json_type
       table.timestamps precision: 6
     end
     add_index CASES, [:run_id, :position], unique: true, name: "rle_case_order"
     add_index CASES, [:run_id, :case_id], unique: true, name: "rle_case_identity"
 
-    create_table METRICS do |table|
+    create_table METRICS, **table_options do |table|
       table.references :case_result, null: false, foreign_key: { to_table: CASES }
       table.integer :position, null: false
       table.string :name, null: false
@@ -58,7 +59,7 @@ class CreateAgentEvaluationHistory < ActiveRecord::Migration[7.1]
       table.float :score
       table.boolean :passed, null: false
       table.text :reason
-      table.jsonb :error_details
+      table.column :error_details, json_type
       table.timestamps precision: 6
     end
     add_index METRICS, [:case_result_id, :position], unique: true, name: "rle_metric_order"

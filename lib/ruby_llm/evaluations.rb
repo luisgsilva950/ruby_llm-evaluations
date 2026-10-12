@@ -21,7 +21,7 @@ require_relative "evaluations/dashboard"
 
 module RubyLLM
   module Evaluations
-    DEFAULT_DATABASE_URL = "postgresql://localhost/ruby_llm_evaluations"
+    DEFAULT_DATABASE_URL = "sqlite3:ruby_llm_evaluations.sqlite3"
     MIGRATIONS_PATH = File.expand_path("../../db/migrate", __dir__).freeze
     autoload :Engine, File.expand_path("evaluations/engine", __dir__)
 
@@ -38,7 +38,6 @@ module RubyLLM
 
     # Standalone setup uses Rails migrations; a host application uses db:migrate.
     def self.migrate!
-      ApplicationRecord.require_postgresql!
       ::ActiveRecord::MigrationContext.new([MIGRATIONS_PATH]).migrate
       [Run, CaseResult, MetricResult].each(&:reset_column_information)
     end

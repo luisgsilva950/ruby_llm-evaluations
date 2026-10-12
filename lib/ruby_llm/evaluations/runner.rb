@@ -5,7 +5,6 @@ module RubyLLM
     class Runner
       def run(suite, metadata: {})
         suite.validate!
-        Run.require_postgresql!
         raise Error, "Apply evaluation migrations before running a suite" unless Run.table_exists?
         raise ArgumentError, "run metadata must be a Hash" unless metadata.is_a?(Hash)
         run_metadata = Data.json_value(metadata)

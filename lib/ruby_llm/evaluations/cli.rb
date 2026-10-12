@@ -32,7 +32,7 @@ module RubyLLM
         begin
           ::ActiveRecord::Base.establish_connection(options[:database_url])
         rescue ArgumentError, URI::InvalidURIError
-          raise Error, "Invalid database configuration. Set DATABASE_URL to a PostgreSQL connection URL."
+          raise Error, "Invalid database configuration. Set DATABASE_URL to an ActiveRecord connection URL."
         end
         if command == "db:migrate"
           raise ArgumentError, "db:migrate takes no positional arguments" unless args.empty?
@@ -50,7 +50,7 @@ module RubyLLM
         when "dashboard" then dashboard(args, options)
         end
       rescue ::ActiveRecord::ActiveRecordError
-        @err.puts("Database configuration error. Check DATABASE_URL and PostgreSQL availability; run ruby_llm-agent-evaluations db:migrate to create evaluation tables.")
+        @err.puts("Database configuration error. Check DATABASE_URL and database availability; run ruby_llm-agent-evaluations db:migrate to create evaluation tables.")
         2
       rescue OptionParser::ParseError, ArgumentError, Error, SystemCallError, JSON::ParserError, SyntaxError => exception
         @err.puts("#{exception.class}: #{exception.message}")
@@ -64,7 +64,7 @@ module RubyLLM
           usage = { "run" => "run SPEC.rb", "history" => "history", "report" => "report [RUN_ID]",
                     "dashboard" => "dashboard", "db:migrate" => "db:migrate" }.fetch(command)
           parser.banner = "Usage: ruby_llm-agent-evaluations #{usage} [options]"
-          parser.on("--database-url URL", "PostgreSQL URL (default: DATABASE_URL or local database)") { |value| options[:database_url] = value }
+          parser.on("--database-url URL", "Database URL (default: DATABASE_URL or local SQLite file)") { |value| options[:database_url] = value }
           if %w[run report].include?(command)
             parser.on("--format FORMAT", FORMATS, "text, markdown, html, or json") { |value| options[:format] = value }
             parser.on("--output PATH", "Write report to a file") { |value| options[:output] = value }

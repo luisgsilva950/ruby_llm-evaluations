@@ -7,12 +7,6 @@ module RubyLLM
     class ApplicationRecord < ::ActiveRecord::Base
       self.abstract_class = true
 
-      def self.require_postgresql!
-        unless connection_pool.db_config.adapter == "postgresql"
-          raise Error, "evaluation history requires PostgreSQL"
-        end
-      end
-
       # Completed evidence is append-only through the model API.
       def readonly?
         persisted?

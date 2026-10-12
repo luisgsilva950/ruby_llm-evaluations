@@ -7,6 +7,8 @@ module RubyLLM
   module Evaluations
     class Run < ApplicationRecord
       self.table_name = "ruby_llm_evaluations_runs"
+      self.primary_key = "id"
+      attribute :metadata, default: -> { {} }
 
       has_many :case_results, -> { order(:position) }, inverse_of: :run,
                class_name: "RubyLLM::Evaluations::CaseResult", dependent: :restrict_with_exception

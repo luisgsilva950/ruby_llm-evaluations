@@ -4,6 +4,8 @@ module RubyLLM
   module Evaluations
     class CaseResult < ApplicationRecord
       self.table_name = "ruby_llm_evaluations_case_results"
+      attribute :metadata, default: -> { {} }
+      attribute :minimum_scores, default: -> { {} }
 
       belongs_to :run, inverse_of: :case_results, class_name: "RubyLLM::Evaluations::Run"
       has_many :metric_results, -> { order(:position) }, inverse_of: :case_result,

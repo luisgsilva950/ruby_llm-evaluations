@@ -1,6 +1,6 @@
 # RubyLLM Agent Evaluations
 
-Write questions and expected answers in Ruby, declare what matters, and keep evaluation evidence in PostgreSQL. Compare compatible runs and inspect answers, metrics, errors, and action traces in a read-only dashboard.
+Write questions and expected answers in Ruby, declare what matters, and keep evaluation evidence in PostgreSQL, SQLite, or MySQL through ActiveRecord. Compare compatible runs and inspect answers, metrics, errors, and action traces in a read-only dashboard.
 
 Works with any callable agent. RubyLLM is optional; Rails applications use named ActiveRecord models sharing their normal host connection pool.
 
@@ -10,7 +10,7 @@ Install the package as `ruby_llm-agent-evaluations`:
 gem "ruby_llm-agent-evaluations", "~> 0.2", require: "ruby_llm/evaluations"
 ~~~
 
-The executable is `ruby_llm-agent-evaluations`. The Ruby API remains `RubyLLM::Evaluations` with `require "ruby_llm/evaluations"`; Rails migration tasks and PostgreSQL table names are unchanged, preserving existing history. The separately owned `ruby_llm-evaluations` package on RubyGems is not this project. The GitHub repository keeps its existing name.
+The executable is `ruby_llm-agent-evaluations`. The Ruby API remains `RubyLLM::Evaluations` with `require "ruby_llm/evaluations"`; Rails migration tasks and evaluation table names are unchanged, preserving existing history. The separately owned `ruby_llm-evaluations` package on RubyGems is not this project. The GitHub repository keeps its existing name.
 
 ## Question-first specifications
 
@@ -44,7 +44,7 @@ Questions accept optional name:, id:, and expected_actions:. Names default to qu
 
 ## Strict API replay
 
-Declare fixtures inside a question block to exercise real HTTP clients without contacting the API. This complete spec needs the ordinary PostgreSQL setup below, but no provider credentials:
+Declare fixtures inside a question block to exercise real HTTP clients without contacting the API. This complete spec needs the ordinary database setup below, but no provider credentials:
 
 ~~~ruby
 require "net/http"
@@ -82,7 +82,7 @@ Absolute `body_file:` paths are also accepted; prefer spec-relative paths for po
 
 Replay is strict/offline by default: undeclared network requests fail. For live model requests made by the agent itself, explicitly use `api_interactions(allow_hosts: ["api.openai.com"]) do ... end`. Allowances match exact hosts, not suffixes or wildcards, and may incur provider charges. An allowed host never bypasses a declared fixture request. Judge calls need no replay allowance because judging runs outside replay. There is no recording mode.
 
-PostgreSQL case results persist `response_metadata["api_replay"]` on success and failure: expected interactions, observed match statuses, readable mismatch differences, and missing requests. Authentication/credential fields are redacted from replay evidence. Still use synthetic fixtures: never commit credentials or sensitive payloads, and protect persisted prompts, answers, and reports.
+Case results persist `response_metadata["api_replay"]` on success and failure: expected interactions, observed match statuses, readable mismatch differences, and missing requests. Authentication/credential fields are redacted from replay evidence. Still use synthetic fixtures: never commit credentials or sensitive payloads, and protect persisted prompts, answers, and reports.
 
 Replay evidence uses the existing response-metadata display in reports and the dashboard; JSON reports include the persisted `response_metadata.api_replay` payload. No separate evidence store or migration is required.
 
@@ -139,6 +139,16 @@ Add the gem to your application's Gemfile. During local development, add `path: 
 gem "ruby_llm-agent-evaluations", "~> 0.2", require: "ruby_llm/evaluations"
 ~~~
 
+Persistence uses the adapter selected by ActiveRecord: PostgreSQL, SQLite, or MySQL 8.0+. The gem does not require `pg` or another database driver; add your chosen driver to the application's Gemfile (or keep the one already used by your Rails host):
+
+~~~ruby
+gem "sqlite3"  # SQLite
+# gem "pg"    # PostgreSQL instead
+# gem "mysql2" # MySQL instead
+~~~
+
+Rails uses its existing database configuration and normal connection pool; no separate evaluation connection or storage configuration is needed. MySQL tables use `utf8mb4_0900_bin` so case, accents, and trailing spaces remain distinct in identifiers and baseline matching.
+
 Install the engine migrations into the host application, then migrate normally:
 
 ~~~sh
@@ -148,7 +158,9 @@ bin/rails db:migrate
 
 For standalone use, run `ruby_llm-agent-evaluations db:migrate` once before the first evaluation. Rails applications install the single engine migration and run `bin/rails db:migrate` as shown above.
 
-PostgreSQL is required. The single migration creates only three evaluation tables: `ruby_llm_evaluations_runs`, `ruby_llm_evaluations_case_results`, and `ruby_llm_evaluations_metric_results`. It creates `minimum_scores` directly, with the foreign keys and indexes needed for history and baseline comparisons. No legacy tables, payload imports, or custom schema-version tables are required or inspected. ActiveRecord manages its ordinary migration bookkeeping. Execution uses the host connection pool and does not establish, migrate, or disconnect it.
+The single migration creates exactly three evaluation tables: `ruby_llm_evaluations_runs`, `ruby_llm_evaluations_case_results`, and `ruby_llm_evaluations_metric_results`. It creates `minimum_scores` directly, with the foreign keys and indexes needed for history and baseline comparisons. No legacy tables, payload imports, or custom schema-version tables are required or inspected. ActiveRecord manages its ordinary migration bookkeeping. Execution uses the host connection pool and does not establish, migrate, or disconnect it.
+
+Existing PostgreSQL installations continue using their applied migration and saved history unchanged; no schema reset or history deletion is needed. Rails migrations already copied into a host are not automatically updated when the gem changes. New hosts should install the current engine migration; database portability does not require a legacy upgrade migration.
 
 ~~~ruby
 # config/routes.rb
@@ -161,12 +173,13 @@ Visit /evaluations. Assets, filters, detail/baseline links, and downloads respec
 
 ## Offline quick start: exact match, not semantic judging
 
-Requirements: Ruby 3.2+, PostgreSQL, Bundler. Rails and RubyLLM are optional. This deterministic local demo runs without API keys and is deliberately separate from semantic judging. It performs a real local answer lookup and records that action; exact match is not a semantic judge.
+Requirements: Ruby 3.2+, Bundler, and your chosen database driver (`sqlite3` for this quick start). Rails and RubyLLM are optional. This deterministic local demo runs without API keys and is deliberately separate from semantic judging. It performs a real local answer lookup and records that action; exact match is not a semantic judge.
+
+From this checkout, the development bundle supplies the drivers. Standalone consumers add the gem and their chosen driver to their own Gemfile, then use `bundle exec ruby_llm-agent-evaluations` in place of the checkout command below.
 
 ~~~sh
 bundle install
-docker compose up -d --wait
-export DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluations'
+unset DATABASE_URL # Defaults to sqlite3:ruby_llm_evaluations.sqlite3 in the current directory.
 
 # Migrate once before executing specs. Runs never create tables implicitly.
 bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations db:migrate
@@ -179,7 +192,28 @@ bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations history
 bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations dashboard
 ~~~
 
-Open **http://127.0.0.1:4567**; Ctrl-C stops the server. PostgreSQL evidence survives restarts. Compose binds passwordless development PostgreSQL to loopback port 55432; **do not use this configuration in production**. Its named volume preserves history; docker compose stop does not delete it. For your own service, set DATABASE_URL to an existing database.
+Open **http://127.0.0.1:4567**; Ctrl-C stops the server. The local SQLite file preserves evidence across restarts. Set DATABASE_URL to use another database or SQLite file; migrations remain an explicit setup step.
+
+### PostgreSQL or MySQL instead
+
+Install `pg` for PostgreSQL or `mysql2` for MySQL in your consumer Gemfile. For local services from this checkout:
+
+~~~sh
+docker compose up -d postgres mysql
+
+# PostgreSQL: the development database is provisioned by Compose.
+export DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluations'
+
+# Or MySQL: create a development database, then select it.
+docker compose exec -T mysql mysql -uroot -pdev-only -e 'CREATE DATABASE IF NOT EXISTS ruby_llm_evaluations;'
+export DATABASE_URL='mysql2://root:dev-only@127.0.0.1:53306/ruby_llm_evaluations'
+
+# With the selected URL, migrate once, then run the same demo.
+bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations db:migrate
+bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/support_eval.rb
+~~~
+
+Compose binds passwordless PostgreSQL to loopback port 55432 and MySQL 8.4 with the development-only root password `dev-only` to loopback port 53306. **Do not use these credentials/configurations in production.** Named volumes preserve database history; `docker compose stop` does not delete it. For your own service, set DATABASE_URL to an existing database with an appropriate application account.
 
 The offline example produces the following evidence:
 
@@ -193,7 +227,7 @@ The regressed agent answers the return question with 7 days instead of 30 and lo
 The standalone CLI alone establishes ActiveRecord::Base's connection. Standalone library callers configure it themselves:
 
 ~~~ruby
-ActiveRecord::Base.establish_connection(ENV.fetch("DATABASE_URL"))
+ActiveRecord::Base.establish_connection(ENV.fetch("DATABASE_URL", "sqlite3:ruby_llm_evaluations.sqlite3"))
 RubyLLM::Evaluations.migrate! # Once during database setup, not per run.
 ~~~
 
@@ -289,20 +323,23 @@ With no judge supplied, the actual dashboard records answers but leaves quality 
 
 ## Development and packaging
 
-Integration tests always: behavior changes must update end-to-end coverage. PostgreSQL is required; integration tests must never silently skip.
+Integration tests always: behavior changes must update end-to-end coverage. Exercise real SQLite, PostgreSQL, and MySQL persistence and consumer smoke flows; integration tests must never silently skip an unavailable database. These are development-check requirements, not a requirement that consumers install every driver or run every server.
 
 ~~~sh
+bundle install
+docker compose up -d postgres mysql
 docker compose exec -T postgres createdb -U postgres ruby_llm_evaluations_test
 export TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluations_test'
+export TEST_MYSQL_DATABASE_URL='mysql2://root:dev-only@127.0.0.1:53306/mysql'
 bundle exec rake integration
 bundle exec rake test
 
 gem build ruby_llm-agent-evaluations.gemspec
-gem install ./ruby_llm-agent-evaluations-0.2.1.gem
+gem install ./ruby_llm-agent-evaluations-0.2.2.gem
 ruby_llm-agent-evaluations --help
 ~~~
 
-Tests isolate PostgreSQL schemas rather than clear development history; the test role needs schema-creation privileges. Local HTTP provider fixtures verify real adapter transport/orchestration, not model reasoning. Default tests never call paid providers. For UI changes inspect desktop/narrow layouts, keyboard access, filters, chart navigation, and downloads. Shared engineering guidance and specialist skills live in [.agents/](.agents/AGENTS.md).
+Tests isolate temporary SQLite files, PostgreSQL schemas, and MySQL databases rather than clear development history. The PostgreSQL test role needs schema-creation privileges; the MySQL test account needs database-creation/deletion privileges on the test server. SQLite needs no service or test URL. Local HTTP provider fixtures verify real adapter transport/orchestration, not model reasoning. Default tests never call paid providers. For UI changes inspect desktop/narrow layouts, keyboard access, filters, chart navigation, and downloads. Shared engineering guidance and specialist skills live in [.agents/](.agents/AGENTS.md).
 
 ## Publishing
 
@@ -310,6 +347,7 @@ The release version is defined in `lib/ruby_llm/evaluations/version.rb`. Bump it
 
 ~~~sh
 export TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluations_test'
+export TEST_MYSQL_DATABASE_URL='mysql2://root:dev-only@127.0.0.1:53306/mysql'
 bundle install
 bundle exec ruby script/publish --dry-run
 

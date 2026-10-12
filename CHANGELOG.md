@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+- Support PostgreSQL, SQLite, and MySQL 8.0+ through the ActiveRecord-selected adapter and one migration creating exactly three evaluation tables. Preserve UUID run IDs, append-only evidence, foreign keys, and chronological baseline ordering. MySQL uses binary, non-padding collation to preserve exact agent, case, and metric identities.
+- Remove the PostgreSQL-only migration guard and mandatory `pg` dependency. Consumers add their chosen database driver; Rails continues using its normal host pool and migration tasks, while the standalone CLI defaults to `sqlite3:ruby_llm_evaluations.sqlite3`.
+- Keep existing applied PostgreSQL migrations and saved history unchanged. Rails migrations already copied into a host are not automatically rewritten; new hosts install the current engine migration. No schema reset, history deletion, or legacy upgrade is required for portability.
+- Add real SQLite, PostgreSQL, and MySQL consumer coverage and document driver selection, local quick starts, and isolated cross-adapter development checks.
+
 ## 0.2.1
 
 - Simplify new-project setup to one migration creating only runs, case results, and metric results, with `minimum_scores` from the start. Remove legacy schema detection, payload copying, temporary migration models, and the intermediate column-rename migration. Legacy database upgrades are no longer supported.
