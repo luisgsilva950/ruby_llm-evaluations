@@ -1,0 +1,99 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler"
+require "json"
+require "net/http"
+require "open3"
+require "rbconfig"
+require "rubygems/package"
+require "tmpdir"
+
+abort "Usage: bundle exec ruby script/publish [--dry-run]" unless ARGV.empty? || ARGV == ["--dry-run"]
+dry_run = ARGV == ["--dry-run"]
+Dir.chdir(File.expand_path("..", __dir__))
+root = Dir.pwd
+spec = Gem::Specification.load("ruby_llm-evaluations.gemspec")
+abort "Cannot load gemspec" unless spec
+host = "https://rubygems.org"
+
+# Never print credentials or allow an inherited GEM_HOST to redirect the upload.
+unless dry_run
+  status, success = Open3.capture2("git", "status", "--porcelain")
+  abort "Commit all release changes before publishing" unless success.success? && status.empty?
+  key = ENV["GEM_HOST_API_KEY"] || Gem.configuration.rubygems_api_key
+  abort "RubyGems credentials missing. Run gem signin or configure GEM_HOST_API_KEY securely." if key.to_s.empty?
+end
+
+response = Net::HTTP.get_response(URI("#{host}/api/v1/versions/#{spec.name}.json"))
+case response.code
+when "200"
+  published = JSON.parse(response.body).any? { |entry| entry.fetch("number") == spec.version.to_s }
+  abort "#{spec.name} #{spec.version} is already published; bump VERSION and update CHANGELOG" if published
+when "404"
+  # First release; RubyGems will enforce ownership when pushing.
+else
+  abort "RubyGems version lookup failed (HTTP #{response.code})"
+end
+
+run = ->(*command) do
+  puts "+ #{command.join(' ')}"
+  abort "Command failed: #{command.first}" unless system(*command)
+end
+run.call("bundle", "exec", "rake", "integration")
+run.call("bundle", "exec", "rake", "test")
+
+require_relative "../lib/ruby_llm/evaluations"
+require_relative "../test/postgres_helper"
+ActiveRecord::Migration.verbose = false
+sandbox = PostgresSandbox.new
+begin
+  Dir.mktmpdir("ruby-llm-release-") do |directory|
+    package = File.join(directory, "#{spec.name}-#{spec.version}.gem")
+    run.call(RbConfig.ruby, "-S", "gem", "build", "ruby_llm-evaluations.gemspec", "--output", package)
+    manifest = Gem::Package.new(package).spec
+    abort "Package version mismatch" unless manifest.version == spec.version
+    forbidden = manifest.files.select { |file| file.match?(%r{\A(?:test/|tmp/|log/|reports/|\.git/)|(?:\A|/)credentials(?:\z|/)|\.env(?:\z|\.)}) }
+    abort "Private files in package: #{forbidden.join(', ')}" unless forbidden.empty?
+    puts "Package manifest: #{manifest.files.size} files, version #{manifest.version}"
+
+    gem_home = File.join(directory, "gems")
+    Bundler.with_unbundled_env do
+      run.call(RbConfig.ruby, "-S", "gem", "install", package, "--install-dir", gem_home,
+               "--local", "--ignore-dependencies", "--no-document")
+      environment = { "GEM_HOME" => gem_home, "GEM_PATH" => [gem_home, *Gem.path].join(File::PATH_SEPARATOR),
+                      "RUBYLIB" => nil, "RUBYOPT" => nil, "DATABASE_URL" => sandbox.database_url,
+                      "RELEASE_VERSION" => spec.version.to_s, "RELEASE_GEM_HOME" => File.realpath(gem_home),
+                      "AGENT_REVISION" => nil }
+      smoke = <<~'RUBY'
+        require "ruby_llm/evaluations"
+        E = RubyLLM::Evaluations
+        installed = Gem.loaded_specs.fetch("ruby_llm-evaluations")
+        abort "Loaded checkout instead of installed package" unless installed.full_gem_path.start_with?(ENV.fetch("RELEASE_GEM_HOME") + "/")
+        abort "Wrong installed version" unless E::VERSION == ENV.fetch("RELEASE_VERSION")
+        ActiveRecord::Base.establish_connection(ENV.fetch("DATABASE_URL"))
+        path = File.join(installed.full_gem_path, "examples/api_replay_eval.rb")
+        baseline = E.run(TOPLEVEL_BINDING.eval(File.read(path), path))
+        reopened = E::Run.find(baseline.id)
+        abort "Replay smoke failed" unless reopened.case_results.map(&:status) == ["passed", "passed"]
+        abort "Replay evidence missing" unless reopened.case_results.all? { |result| result.response_metadata.fetch("api_replay").fetch("status") == "passed" }
+        ENV["AGENT_REVISION"] = "regressed"
+        candidate = E.run(TOPLEVEL_BINDING.eval(File.read(path), path))
+        report = E::Report.new(candidate, baseline: baseline)
+        abort "Argument mismatch did not regress" unless report.comparison.fetch("regressed")
+        puts "Installed package smoke: inline/file replay, PostgreSQL reload, and argument-mismatch regression passed"
+      RUBY
+      output, status = Open3.capture2e(environment, RbConfig.ruby, "-e", smoke, chdir: directory)
+      puts output
+      abort "Installed package smoke failed" unless status.success?
+      if dry_run
+        puts "Dry run passed. No gem uploaded."
+      else
+        run.call(RbConfig.ruby, "-S", "gem", "push", package, "--host", host)
+        puts "Published #{spec.name} #{spec.version}: #{host}/gems/#{spec.name}/versions/#{spec.version}"
+      end
+    end
+  end
+ensure
+  sandbox.close
+end

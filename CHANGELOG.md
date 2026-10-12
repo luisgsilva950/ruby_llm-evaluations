@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+- Add `script/publish` with integration/full-suite gates, isolated installed-package PostgreSQL smoke, manifest checks, and an upload-free `--dry-run`. Publication requires a clean committed tree and RubyGems credentials.
 
 - Add strict question-scoped API replay for Net::HTTP and Faraday: ordered one-use request assertions, inline JSON or exact-byte JSON files, explicit live-host allowances, and persisted redacted mismatch evidence. Fixture definitions and response-byte hashes participate in compatible-baseline fingerprints; suites without replay keep their fingerprints.
 - Add a large-response evaluation with independent answer, action-argument, and model-facing tool-result budget checks, a bounded/raw-output regression, and an opt-in OpenAI example.

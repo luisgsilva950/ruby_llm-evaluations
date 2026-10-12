@@ -290,11 +290,30 @@ bundle exec rake integration
 bundle exec rake test
 
 gem build ruby_llm-evaluations.gemspec
-gem install ./ruby_llm-evaluations-0.1.0.gem
+gem install ./ruby_llm-evaluations-0.2.0.gem
 ruby_llm-evaluations --help
 ~~~
 
 Tests isolate PostgreSQL schemas rather than clear development history; the test role needs schema-creation privileges. Local HTTP provider fixtures verify real adapter transport/orchestration, not model reasoning. Default tests never call paid providers. For UI changes inspect desktop/narrow layouts, keyboard access, filters, chart navigation, and downloads. Shared engineering guidance and specialist skills live in [.agents/](.agents/AGENTS.md).
+
+## Publishing
+
+The release version is defined in `lib/ruby_llm/evaluations/version.rb`. Bump it and update CHANGELOG before publishing; RubyGems does not allow replacing an existing version.
+
+~~~sh
+export TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluations_test'
+bundle install
+bundle exec ruby script/publish --dry-run
+
+# Authenticate locally; never paste or commit an API key.
+gem signin
+# Commit the version, changelog, and release changes before upload.
+bundle exec ruby script/publish
+~~~
+
+The script runs integration tests and the full suite, builds the gem, rejects private paths in its manifest, installs into a temporary GEM_HOME, and executes inline/file API replay against an isolated PostgreSQL schema outside the checkout. It verifies persisted evidence and argument-mismatch regression. Temporary package, installation, and schema are removed afterward. `--dry-run` runs these gates without credentials or upload. Normal publication requires a clean committed working tree and uploads only to `https://rubygems.org`; existing RubyGems credentials or `GEM_HOST_API_KEY` are supported. Credentials need permission to push this gem; RubyGems may additionally request MFA. No version bumps, git commits, tags, or pushes happen implicitly.
+
+RubyLLM remains optional. The development bundle and provider-backed examples currently target RubyLLM 1.x; this release does not claim RubyLLM 2.x adapter compatibility. Default release checks do not call paid providers.
 
 ## Data and security
 
