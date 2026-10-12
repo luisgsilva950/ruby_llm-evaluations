@@ -100,17 +100,17 @@ Built-ins include `exact_match`, `contains`, `matches`, and `valid_json`. Action
 
 ### Structured responses (unreleased)
 
-Score UI/protocol payloads separately from text. Add this to an **existing tool class**:
+Score UI/protocol payloads separately from text. **UI is response data, not a tool call.** Return your renderer's payload explicitly; no RubyLLM tool class or concern is needed:
 
 ```ruby
-prepend RubyLLM::Evaluations::ResponseComponentTool
-
-def response_component
-  { protocol: "a2ui", version: "0.8" }
-end
+# Inside your agent; ui_payload comes from your application's renderer.
+RubyLLM::Evaluations::Response.new(
+  output: "Returns within 30 days",
+  components: [{ protocol: "a2ui", version: "0.8", payload: ui_payload }]
+)
 ```
 
-Marked tools keep their original return values and callbacks. During `Evaluations.run` or the RubyLLM chat adapter, results are captured in call order with protocol, declared version, tool name, arguments, and payload; explicit final-response components follow them. Evaluators read `context.response.components`; history and reports retain the evidence without new tables or migrations. Outside a run, use `Response.capture { agent.call(question) }`.
+Evaluators read `context.response.components`; history and reports retain the evidence without new tables or migrations.
 
 ```ruby
 # Build the check separately; expected_ui_messages is parsed JSON in question metadata.
@@ -127,9 +127,21 @@ evaluate :a2ui, using: ui_check
 
 The evaluator rejects missing components, an empty matching set, or a wrong declared version before your check runs. Your block validates the schema and application contract; the gem does **not** certify A2UI compliance or render supplied UI. Payloads preserve their original JSON-compatible shape; JSON/JSONL strings are not automatically parsed.
 
-Other agents can return `Response.new(output: nil, components: [{ protocol: "a2ui", version: "0.8", payload: data }])`; text is optional. `nil` means unreported components, `[]` means explicitly none. Capture is synchronous and fiber-local; worker-thread/streaming agents must assemble components explicitly. `response_components` in response metadata is reserved for persistence. Put expected UI data in question metadata and bump suite `version` when validators change.
+Text is optional (`output: nil`). Components `nil` means unreported, `[]` means explicitly none. Put expected UI data in question metadata and bump suite `version` when validators change. `response_components` in response metadata is reserved for persistence.
 
-See the [complete offline A2UI 0.8 example](examples/a2ui_eval.rb): run it normally, then with `AGENT_REVISION=regressed` or `AGENT_REVISION=missing_ui`. Correct text still passes; incorrect/missing UI fails. This feature is available on the review branch, not the published 0.2.2 gem.
+**Only for actual tools:** if an existing tool emits a response component, opt into capture inside that tool class:
+
+```ruby
+prepend RubyLLM::Evaluations::ResponseComponentTool
+
+def response_component
+  { protocol: "a2ui", version: "0.8" }
+end
+```
+
+Marked tools keep their return values and callbacks. `Evaluations.run` and the RubyLLM chat adapter capture results in call order with protocol, declared version, tool name, arguments, and payload; explicit final-response components follow them. Outside a run, use `Response.capture { agent.call(question) }`. Tool capture is synchronous and fiber-local; worker-thread/streaming agents assemble components explicitly. Plain renderer output has no fabricated tool provenance.
+
+See the [complete offline A2UI 0.8 example](examples/a2ui_eval.rb), which uses a plain renderer and needs no RubyLLM dependency: run normally, then with `AGENT_REVISION=regressed` or `AGENT_REVISION=missing_ui`. Correct text still passes; incorrect/missing UI fails. This feature is on the review branch, not the published 0.2.2 gem.
 
 ## API replay
 

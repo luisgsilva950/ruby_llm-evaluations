@@ -1,19 +1,10 @@
 # frozen_string_literal: true
 
-# Offline consumer example, not proof of model reasoning. Requires ruby_llm 1.x (1.14.1+).
-require "ruby_llm"
+# Offline consumer example, not proof of model reasoning. No RubyLLM dependency.
 require "ruby_llm/evaluations"
 
-class RenderReturnPolicy < RubyLLM::Tool
-  prepend RubyLLM::Evaluations::ResponseComponentTool
-  description "Render a return policy surface"
-  param :days, type: :integer, desc: "Return window in days"
-
-  def response_component
-    { protocol: "a2ui", version: "0.8" }
-  end
-
-  def execute(days:)
+class RenderReturnPolicy
+  def call(days:)
     [
       JSON.generate(surfaceUpdate: { surfaceId: "returns", components: [
         { id: "root", component: { Text: { text: { literalString: "Returns within #{days} days" } } } }
@@ -24,11 +15,15 @@ class RenderReturnPolicy < RubyLLM::Tool
 end
 
 agent = lambda do |_question|
+  components = []
   unless ENV["AGENT_REVISION"] == "missing_ui"
     days = ENV["AGENT_REVISION"] == "regressed" ? 7 : 30
-    RenderReturnPolicy.new.call(days: days)
+    components << { protocol: "a2ui", version: "0.8", payload: RenderReturnPolicy.new.call(days: days) }
   end
-  "Returns within 30 days" # Correct text alone must not conceal incorrect/missing UI.
+  RubyLLM::Evaluations::Response.new(
+    output: "Returns within 30 days", # Correct text must not conceal incorrect/missing UI.
+    components: components
+  )
 end
 
 # Expected UI is question data, independent of the tool implementation.
