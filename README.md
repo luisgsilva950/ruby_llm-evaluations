@@ -146,9 +146,9 @@ bin/rails ruby_llm_evaluations:install:migrations
 bin/rails db:migrate
 ~~~
 
-When upgrading, repeat the install:migrations and db:migrate commands to install and apply new engine migrations; keep existing migrations and history. Standalone users instead run ruby_llm-agent-evaluations db:migrate before their next run.
+For standalone use, run `ruby_llm-agent-evaluations db:migrate` once before the first evaluation. Rails applications install the single engine migration and run `bin/rails db:migrate` as shown above.
 
-PostgreSQL is required. Tables are ruby_llm_evaluations_runs, ruby_llm_evaluations_case_results, and ruby_llm_evaluations_metric_results. Existing legacy payload history is migrated, not discarded. There are no Store objects, dynamically allocated models, or separate connection pools. Execution does not establish, migrate, or disconnect the host pool.
+PostgreSQL is required. The single migration creates only three evaluation tables: `ruby_llm_evaluations_runs`, `ruby_llm_evaluations_case_results`, and `ruby_llm_evaluations_metric_results`. It creates `minimum_scores` directly, with the foreign keys and indexes needed for history and baseline comparisons. No legacy tables, payload imports, or custom schema-version tables are required or inspected. ActiveRecord manages its ordinary migration bookkeeping. Execution uses the host connection pool and does not establish, migrate, or disconnect it.
 
 ~~~ruby
 # config/routes.rb

@@ -42,7 +42,7 @@ Source paths are inside `lib/ruby_llm/evaluations/` unless otherwise noted.
 - Preserve caller-owned input and Ruby symbol/string distinctions. Persist JSON-portable data; never silently stringify unsupported objects.
 - Fingerprints include question data, expected answers/actions, minimum_scores names/thresholds, metadata, Ruby types, and explicit suite version. Bump the version for scoring code/rubric/judge changes; do not auto-hash Proc source.
 - Baselines match suite, agent identity, and fingerprint. Historical reports never compare against future runs.
-- Run IDs are immutable. Named ActiveRecord models share the host pool; engine migrations are installed and applied through normal Rails tasks. Standalone CLI users explicitly run db:migrate. Preserve existing history; never establish or disconnect a host pool during library execution. Bind user-provided SQL values.
+- Run IDs are immutable. Named ActiveRecord models share the host pool; engine migrations are installed and applied through normal Rails tasks. Standalone CLI users explicitly run db:migrate. New-project setup creates only runs, case results, and metric results, with minimum_scores directly; do not add legacy schema detection or import paths. Preserve current evaluation evidence; never establish or disconnect a host pool during library execution. Bind user-provided SQL values.
 - Treat output as untrusted. Escape HTML; keep the dashboard GET/HEAD-only and loopback by default. No external asset dependencies.
 - Prompts, outputs, and reports may contain sensitive data. No credentials in fixtures, source, logs, or tracked databases.
 

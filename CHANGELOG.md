@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Simplify new-project setup to one migration creating only runs, case results, and metric results, with `minimum_scores` from the start. Remove legacy schema detection, payload copying, temporary migration models, and the intermediate column-rename migration. Legacy database upgrades are no longer supported.
+
 ## 0.2.0
 
 - Publish this project as `ruby_llm-agent-evaluations` to avoid the separately owned RubyGems package. Rename the executable and gemspec; preserve `RubyLLM::Evaluations`, `ruby_llm/evaluations`, Rails migration tasks, and PostgreSQL history. Version 0.2.0 is the first RubyGems release under the new name; the earlier section records this project's development history.
