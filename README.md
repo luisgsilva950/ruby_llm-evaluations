@@ -298,7 +298,7 @@ bundle exec rake integration
 bundle exec rake test
 
 gem build ruby_llm-agent-evaluations.gemspec
-gem install ./ruby_llm-agent-evaluations-0.2.0.gem
+gem install ./ruby_llm-agent-evaluations-0.2.1.gem
 ruby_llm-agent-evaluations --help
 ~~~
 

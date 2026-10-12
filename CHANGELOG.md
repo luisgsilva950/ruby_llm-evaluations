@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
 
 - Simplify new-project setup to one migration creating only runs, case results, and metric results, with `minimum_scores` from the start. Remove legacy schema detection, payload copying, temporary migration models, and the intermediate column-rename migration. Legacy database upgrades are no longer supported.
 
