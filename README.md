@@ -98,6 +98,35 @@ Built-ins include `exact_match`, `contains`, `matches`, and `valid_json`. Action
 
 **Passing is not the same as avoiding regression.** A drop from 0.98 to 0.92 passes a 0.9 minimum but regresses beyond a 0.02 tolerance. Baselines match earlier suite/agent/definition fingerprints. Questions, references/actions, minimums, metadata, fixture bytes, and suite version affect compatibility. **Bump suite `version` when changing scoring code, rubrics, or judge configuration**; callable source is not hashed.
 
+### Structured responses (unreleased)
+
+Score UI/protocol payloads separately from text. Add this to an **existing tool class**:
+
+```ruby
+include RubyLLM::Evaluations::ResponseComponentTool
+response_component protocol: "a2ui", version: "0.8"
+```
+
+Marked tools keep their original return values and callbacks. During `Evaluations.run` or the RubyLLM chat adapter, each result is captured in order with its protocol, declared version, tool name, arguments, and payload. Evaluators read `context.response.components`; history and reports retain the evidence without new tables or migrations.
+
+```ruby
+# Inside a suite; expected_ui_messages in question metadata is parsed JSON.
+evaluate :a2ui, using: RubyLLM::Evaluations::Evaluators.response_components(
+  protocol: "a2ui", version: "0.8"
+) { |components, context|
+  messages = components.flat_map do |item|
+    item.fetch("payload").lines.map { |line| JSON.parse(line) }
+  end
+  messages == context.metadata.fetch(:expected_ui_messages)
+}
+```
+
+The evaluator rejects missing components, an empty matching set, or a wrong declared version before your check runs. Your block validates the schema and application contract; the gem does **not** certify A2UI compliance or render supplied UI. Payloads preserve their original JSON-compatible shape; JSON/JSONL strings are not automatically parsed.
+
+Other agents can return `Response.new(output: nil, components: [{ protocol: "a2ui", version: "0.8", payload: data }])`; text is optional. `nil` means unreported components, `[]` means explicitly none. Capture is synchronous and fiber-local; worker-thread/streaming agents must assemble components explicitly. `response_components` in response metadata is reserved for persistence. Put expected UI data in question metadata and bump suite `version` when validators change.
+
+See the [complete offline A2UI 0.8 example](examples/a2ui_eval.rb): run it normally, then with `AGENT_REVISION=regressed` or `AGENT_REVISION=missing_ui`. Correct text still passes; incorrect/missing UI fails. This feature is available on the review branch, not the published 0.2.2 gem.
+
 ## API replay
 
 Keep API data fixed while exercising the real HTTP client. Save as `shipping_eval.rb` and run with the same CLI:

@@ -3,9 +3,9 @@
 module RubyLLM
   module Evaluations
     class Response
-      attr_reader :output, :input_tokens, :output_tokens, :cost, :metadata, :actions
+      attr_reader :output, :input_tokens, :output_tokens, :cost, :metadata, :actions, :components
 
-      def initialize(output:, input_tokens: nil, output_tokens: nil, cost: nil, metadata: {}, actions: nil)
+      def initialize(output:, input_tokens: nil, output_tokens: nil, cost: nil, metadata: {}, actions: nil, components: nil)
         @output = output
         @input_tokens = tokens(input_tokens)
         @output_tokens = tokens(output_tokens)
@@ -13,9 +13,13 @@ module RubyLLM
           raise ArgumentError, "cost must be a finite nonnegative number"
         end
         raise ArgumentError, "response metadata must be a Hash" unless metadata.is_a?(Hash)
+        if metadata.key?(:response_components) || metadata.key?("response_components")
+          raise ArgumentError, "response_components is reserved; use components: instead"
+        end
         @cost = cost&.to_f
         @metadata = Data.json_value(metadata)
         @actions = actions.nil? ? nil : Actions.normalize(actions)
+        @components = components.nil? ? nil : ResponseComponents.normalize(components)
       end
 
       def self.normalize(value)

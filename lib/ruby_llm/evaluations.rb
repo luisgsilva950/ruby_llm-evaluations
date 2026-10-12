@@ -3,6 +3,7 @@
 require_relative "evaluations/version"
 require_relative "evaluations/data"
 require_relative "evaluations/actions"
+require_relative "evaluations/response_components"
 require_relative "evaluations/judge_metric"
 require_relative "evaluations/evaluators"
 require_relative "evaluations/api_replay"

@@ -154,6 +154,32 @@ class DatabasePortabilityTest < Minitest::Test
         assert_raises(ActiveRecord::RecordNotFound) { E::Run.find(old.id) }
       end
     end
+    define_method("test_#{adapter}_structured_components_survive_reconnection_and_regression") do
+      with_database(adapter) do |database_url|
+        E.migrate!
+        payload = { "label" => "Returns within 30 days 雪", "values" => [true, false, nil, 42], "large" => "UI data" * 20_000 }
+        components = [{ "protocol" => "a2ui", "version" => "0.8", "payload" => payload }]
+        agent = ->(_input) { E::Response.new(output: nil, components: components, metadata: { "model" => "local" }) }
+        check = E::Evaluators.response_components(protocol: "a2ui", version: "0.8") { |items, _context| items.first.fetch("payload").fetch("label") == "Returns within 30 days 雪" }
+        definition = E.define("Portable UI", agent: agent) do
+          evaluate :ui, using: check
+          question "render"
+        end
+        baseline = E.run(definition)
+        components.first["payload"]["label"] = "Returns within 7 days 雪"
+        current = E.run(definition)
+        reconnect(database_url)
+        reopened = E::Run.with_results.find(current.id)
+        assert_equal "failed", reopened.case_results.first.status
+        assert_nil reopened.case_results.first.output
+        assert_equal components, reopened.case_results.first.components
+        assert_equal "Returns within 30 days 雪", E::Run.find(baseline.id).case_results.first.components.first.fetch("payload").fetch("label")
+        report = E::Report.new(reopened, baseline: reopened.previous)
+        assert report.comparison.fetch("regressed")
+        assert_equal components, JSON.parse(report.to_json).fetch("cases").first.fetch("components")
+      end
+    end
+
   end
 
   private

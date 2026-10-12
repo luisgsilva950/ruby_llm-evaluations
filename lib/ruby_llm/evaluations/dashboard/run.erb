@@ -47,6 +47,7 @@
     <section><h4><%= label %></h4><% if item[key].nil? %><p class="muted"><%= missing %></p><% elsif item[key].empty? %><p class="muted"><%= empty %></p><% else %><p class="muted small">Ordered trace: group, name, and arguments.</p><ol class="evidence-list"><% item[key].each do |action| %><li><pre class="payload"><%= ui.h(ui.pretty(action)) %></pre></li><% end %></ol><% end %></section>
   <% end %>
   </div>
+  <details class="metadata-details"><summary>Response components</summary><pre class="payload"><%= ui.h(item["components"].nil? ? "Unavailable — response component instrumentation missing" : ui.pretty(item["components"])) %></pre></details>
   <details class="metadata-details"><summary>Response metadata</summary><pre class="payload"><%= ui.h(item["response_metadata"].nil? ? "Unavailable — response metadata not reported" : ui.pretty(item["response_metadata"])) %></pre></details>
   <% unless item["metadata"].empty? %><details class="metadata-details"><summary>Case metadata</summary><pre class="payload"><%= ui.h(ui.pretty(item["metadata"])) %></pre></details><% end %>
 </article><% end %>

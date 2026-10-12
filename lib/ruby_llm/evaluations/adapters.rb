@@ -15,7 +15,8 @@ module RubyLLM
         end
         lambda do |input|
           chat = factory.call
-          answer = Response.normalize(chat.ask(input))
+          raw_answer, components = ResponseComponents.capture { chat.ask(input) }
+          answer = Response.normalize(raw_answer)
           messages = chat.messages
           actions = messages.flat_map do |message|
             (message.tool_calls || {}).each_value.map do |call|
@@ -25,7 +26,8 @@ module RubyLLM
           assistant_messages = messages.select { |message| message.role == :assistant }
           Response.new(output: answer.output, metadata: answer.metadata, cost: answer.cost,
                        input_tokens: total_tokens(assistant_messages, :input_tokens),
-                       output_tokens: total_tokens(assistant_messages, :output_tokens), actions: actions)
+                       output_tokens: total_tokens(assistant_messages, :output_tokens), actions: actions,
+                       components: components + (answer.components || []))
         end
       end
 

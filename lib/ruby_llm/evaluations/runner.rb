@@ -43,11 +43,20 @@ module RubyLLM
         replay = ApiReplay.new(question.api_interactions) if question.api_interactions
         begin
           invoke = -> { suite.agent.call(mutable_copy(question.question)) }
-          response = Response.normalize(replay ? replay.call(&invoke) : invoke.call)
+          raw_response, captured = ResponseComponents.capture { replay ? replay.call(&invoke) : invoke.call }
+          response = Response.normalize(raw_response)
+          unless captured.empty?
+            response = Response.new(output: response.output, metadata: response.metadata, actions: response.actions,
+              input_tokens: response.input_tokens, output_tokens: response.output_tokens, cost: response.cost,
+              components: (response.components || []) + captured)
+          end
           result.merge!("output" => Data.json_value(response.output),
                         "input_tokens" => response.input_tokens, "output_tokens" => response.output_tokens,
                         "cost" => response.cost, "response_metadata" => response.metadata,
                         "actions" => Data.json_value(response.actions))
+          unless response.components.nil?
+            result["response_metadata"] = response.metadata.merge("response_components" => response.components)
+          end
         rescue StandardError => exception
           result["error"] = Data.error(exception)
           result["duration_ms"] = milliseconds(started)

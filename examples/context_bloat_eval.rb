@@ -43,7 +43,7 @@ module ContextBloatExample
       adapter = E::Adapters.ruby_llm_chat(action_groups: { return_policy: "returns" }) { chat }
       response = adapter.call(question)
       tool_bytes = chat.messages.select { |message| message.role == :tool }.map { |message| message.content.to_s.bytesize }
-      E::Response.new(output: response.output, actions: response.actions,
+      E::Response.new(output: response.output, actions: response.actions, components: response.components,
                      input_tokens: response.input_tokens, output_tokens: response.output_tokens, cost: response.cost,
                      metadata: response.metadata.merge("tool_result_bytes" => tool_bytes,
                                                        "api_response_bytes" => tool.api_response_bytes))
