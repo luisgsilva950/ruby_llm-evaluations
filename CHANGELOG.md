@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Rewrite the README around installed-gem onboarding, concise evaluation contracts, and linked examples; separate contributor instructions from the consumer flow.
+
 ## 0.2.2
 
 - Support PostgreSQL, SQLite, and MySQL 8.0+ through the ActiveRecord-selected adapter and one migration creating exactly three evaluation tables. Preserve UUID run IDs, append-only evidence, foreign keys, and chronological baseline ordering. MySQL uses binary, non-padding collation to preserve exact agent, case, and metric identities.

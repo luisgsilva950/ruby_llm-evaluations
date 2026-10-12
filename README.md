@@ -1,370 +1,216 @@
 # RubyLLM Agent Evaluations
 
-Write questions and expected answers in Ruby, declare what matters, and keep evaluation evidence in PostgreSQL, SQLite, or MySQL through ActiveRecord. Compare compatible runs and inspect answers, metrics, errors, and action traces in a read-only dashboard.
+[![Gem version](https://img.shields.io/gem/v/ruby_llm-agent-evaluations.svg)](https://rubygems.org/gems/ruby_llm-agent-evaluations)
+[![Tests](https://github.com/luisgsilva950/ruby_llm-evaluations/actions/workflows/ci.yml/badge.svg)](https://github.com/luisgsilva950/ruby_llm-evaluations/actions/workflows/ci.yml)
 
-Works with any callable agent. RubyLLM is optional; Rails applications use named ActiveRecord models sharing their normal host connection pool.
+**Evaluate agent behavior. Replay external APIs. Catch regressions before shipping a model, prompt, or tool change.**
 
-Install the package as `ruby_llm-agent-evaluations`:
+- **Any callable agent.** Your application owns models, credentials, and orchestration; RubyLLM is optional.
+- **Question-first scoring.** Semantic accuracy, relevancy, deterministic checks, and observed tool-call correctness.
+- **Strict API replay.** Assert request parameters before returning inline or file-backed JSON.
+- **Durable evidence.** SQLite, PostgreSQL, or MySQL 8.0+; compatible baselines, exportable reports, and a read-only dashboard.
 
-~~~ruby
-gem "ruby_llm-agent-evaluations", "~> 0.2", require: "ruby_llm/evaluations"
-~~~
+[Quick start](#quick-start) · [Rails](#rails) · [Scoring](#scoring) · [API replay](#api-replay) · [Reports](#reports-and-dashboard) · [Examples](#examples)
 
-The executable is `ruby_llm-agent-evaluations`. The Ruby API remains `RubyLLM::Evaluations` with `require "ruby_llm/evaluations"`; Rails migration tasks and evaluation table names are unchanged, preserving existing history. The separately owned `ruby_llm-evaluations` package on RubyGems is not this project. The GitHub repository keeps its existing name.
+## Quick start
 
-## Question-first specifications
+Requires Ruby 3.2+, Bundler, and one database driver. **No Rails, PostgreSQL server, or API key required for this example.**
 
-Pass an optional RubyLLM judge agent class directly to the suite constructor. There is no global judge configuration or judge wrapper to build. Your application supplies the agent being evaluated and, when desired, its judge class:
+Add to your `Gemfile`:
 
-~~~ruby
+```ruby
+source "https://rubygems.org"
+gem "ruby_llm-agent-evaluations", "~> 0.2.2", require: "ruby_llm/evaluations"
+gem "sqlite3" # Or your application's pg/mysql2 driver.
+```
+
+Save as `support_eval.rb`. This offline lookup demonstrates the pipeline, not model reasoning:
+
+```ruby
 require "ruby_llm/evaluations"
 
-suite = RubyLLM::Evaluations.define("Customer support", agent: support_agent, judge: SupportJudgeAgent) do
+E = RubyLLM::Evaluations
+policy = { "How long do I have to return an item?" => ENV.fetch("RETURN_WINDOW", "30 days") }
+agent = ->(question) { policy.fetch(question) }
+
+E.define("Return policy", agent: agent, agent_name: "SupportAgent", version: "1") do
+  evaluate :exact_match, using: E::Evaluators.exact_match
   question "How long do I have to return an item?",
-           expected_answer: "You can return it within 30 days.",
-           minimum_scores: { semantic_accuracy: 0.9, answer_relevancy: 0.9 },
-           metadata: { important_facts: ["The return deadline is 30 days."] }
+           expected_answer: "30 days", minimum_scores: { exact_match: 1.0 }
 end
-~~~
+```
 
-| Spec field | Meaning |
+```sh
+bundle install
+bundle exec ruby_llm-agent-evaluations db:migrate
+bundle exec ruby_llm-agent-evaluations run support_eval.rb
+RETURN_WINDOW='7 days' bundle exec ruby_llm-agent-evaluations run support_eval.rb --fail-on-regression
+bundle exec ruby_llm-agent-evaluations history
+bundle exec ruby_llm-agent-evaluations dashboard
+```
+
+The reference passes; the changed answer exits **1**. Open **http://127.0.0.1:4567** to inspect both runs. Without `DATABASE_URL`, history persists in `ruby_llm_evaluations.sqlite3` in the current directory. Migrate once during setup, never per run.
+
+## Rails
+
+Keep your application's existing database driver, configuration, and connection pool:
+
+```sh
+bin/rails ruby_llm_evaluations:install:migrations
+bin/rails db:migrate
+```
+
+```ruby
+# config/routes.rb
+mount RubyLLM::Evaluations::Engine => "/evaluations"
+```
+
+The engine creates **three tables**: runs, case results, and metric results. It uses `jsonb` on PostgreSQL and `json` elsewhere; MySQL's `utf8mb4_0900_bin` collation preserves exact identifiers. Execution never reconfigures the host pool. Existing PostgreSQL history needs no reset; gem updates do not rewrite copied migrations.
+
+Standalone library callers configure ActiveRecord themselves. The CLI selects its connection using `DATABASE_URL` or `--database-url`.
+
+**No built-in dashboard authentication.** Protect the Rails mount with application authorization.
+
+## Scoring
+
+`expected_answer` is the reference; `minimum_scores` contains inclusive thresholds in **[0, 1]**, applied even on the first run. Semantic scores are not string-similarity percentages.
+
+| Dimension | Checks |
 | --- | --- |
-| `question` | The actual request sent to your agent. |
-| `expected_answer` | A reference answer string, not a numeric score; paraphrases can pass semantic scoring. |
-| `minimum_scores` | A map of metric names to absolute, inclusive numeric passing thresholds from 0 to 1, applied on every run, including the first. |
-| `metadata` | Evaluation context, such as the essential facts that the judge must check. |
+| `semantic_accuracy` | Factual meaning, contradictions, and omissions against the reference. |
+| `answer_relevancy` | Responsiveness to the request; an on-topic answer can still be wrong. |
+| `action_group` | Observed group, tool name, arguments, and order—including unexpected calls. |
 
-`minimum_scores: { semantic_accuracy: 0.9 }` means that the calculated semantic-accuracy score must be at least 0.9, even on the first run when no baseline exists. It does not compare against a previous run, and 0.9 is not a promise of 90% string similarity with expected_answer: the semantic judge scores factual meaning against that reference.
+Pass `judge: YourJudgeAgent`, a `RubyLLM::Agent` subclass, to `define` or `Suite.new` for semantic metrics. Each assessment uses a fresh instance; your application configures the model and credentials. See the complete [RubyLLM example](examples/ruby_llm_eval.rb). Provider calls incur charges.
 
-The library creates the selected metrics per question. Semantic accuracy measures factual meaning, accepting paraphrases while penalizing contradictions, unsupported additions, and omitted essential facts. Answer relevancy independently measures responsiveness: a wrong but on-topic answer can be relevant. Metadata is supplied as untrusted evaluation context; important_facts identifies factual priorities, not executable prompt instructions.
+Without a judge, LLM metrics are skipped. **No calculated metrics means `not_evaluated` with null quality/pass rate—not a passing substitute.** Unspecified metrics default to semantic accuracy/relevancy at 0.9 unless explicit evaluators are registered. Agent/evaluator failures remain errors; other checks continue.
 
-Without explicit suite-level evaluate definitions, omitted minimum_scores defaults to semantic_accuracy and answer_relevancy at 0.9. These metrics run only when a judge is supplied. With no judge, LLM-as-judge metrics are not calculated; deterministic and action-group checks still run. No substitute or fabricated score is provided. Explicit minimum_scores chooses named standard/custom metrics per question. Thresholds are inclusive.
+Custom evaluators receive `(output, context)` and return a Boolean, finite score, or `Assessment`. Context includes case data and the full response:
 
-Questions accept optional name:, id:, and expected_actions:. Names default to question text (or a generated label for structured questions); IDs default to names and must be unique. Question/reference/metadata/output data must be JSON-portable. Symbol keys/values retain Ruby distinctions in fingerprints and agent calls; persisted JSON normalizes them. Unsupported objects fail explicitly. Specs execute trusted Ruby, not sandboxed code, and must return a Suite; define returns one.
+```ruby
+# Inside a suite; give the question metadata: { max_words: 12 }.
+evaluate(:conciseness, threshold: 1.0) do |output, context|
+  output.split.size <= context.metadata.fetch(:max_words)
+end
+```
 
-## Strict API replay
+Built-ins include `exact_match`, `contains`, `matches`, and `valid_json`. Action checks require observed `Response.actions` or the RubyLLM adapter's `action_groups`: `nil` means missing instrumentation; `[]` means no observed calls. Never infer execution from an answer.
 
-Declare fixtures inside a question block to exercise real HTTP clients without contacting the API. This complete spec needs the ordinary database setup below, but no provider credentials:
+**Passing is not the same as avoiding regression.** A drop from 0.98 to 0.92 passes a 0.9 minimum but regresses beyond a 0.02 tolerance. Baselines match earlier suite/agent/definition fingerprints. Questions, references/actions, minimums, metadata, fixture bytes, and suite version affect compatibility. **Bump suite `version` when changing scoring code, rubrics, or judge configuration**; callable source is not hashed.
 
-~~~ruby
+## API replay
+
+Keep API data fixed while exercising the real HTTP client. Save as `shipping_eval.rb` and run with the same CLI:
+
+```ruby
 require "net/http"
 require "json"
 require "ruby_llm/evaluations"
 
 E = RubyLLM::Evaluations
-shipping_agent = ->(_question) do
+agent = ->(_question) do
   response = Net::HTTP.get_response(URI("https://shipping.example/orders?id=42"))
   JSON.parse(response.body).fetch("status")
 end
 
-E.define("Shipping API", agent: shipping_agent, agent_name: "ShippingAgent") do
-  evaluate :exact, using: E::Evaluators.exact_match
+E.define("Shipping", agent: agent, agent_name: "ShippingAgent") do
+  evaluate :exact_match, using: E::Evaluators.exact_match
   question "Track order 42", expected_answer: "ready" do
     api_interactions do
-      expect_request(method: :get, url: "https://shipping.example/orders",
-                     query: { id: "42" })
-        .respond_with(status: 200, headers: { "Content-Type" => "application/json" },
-                      json: { status: "ready" })
+      expect_request(method: :get, url: "https://shipping.example/orders", query: { id: "42" })
+        .respond_with(json: { status: "ready" })
     end
   end
 end
-~~~
+```
 
-Save it as `shipping_eval.rb`, then run `ruby_llm-agent-evaluations run shipping_eval.rb` after migrations. [examples/api_replay_eval.rb](examples/api_replay_eval.rb) also demonstrates file responses. Replay supports Net::HTTP and Faraday through standard WebMock-supported transports; it does not replace your agent or HTTP client. Only the agent call is wrapped, not evaluators or judges. Existing mock registrations, network configuration, and enabled adapters are restored after each case, including failures.
+For large responses, replace `json:` with `body_file: "fixtures/order.json"`. Files resolve relative to the spec; exact bytes are snapshotted and fingerprinted. Invalid/missing files fail before execution. See [inline and file fixtures](examples/api_replay_eval.rb).
 
-Run the bundled two-source example with `bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/api_replay_eval.rb`. Then run `AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/api_replay_eval.rb --fail-on-regression` to send deliberately wrong order arguments; strict replay records the mismatch and the regression gate exits nonzero.
+Requests must match method, URL, query, typed JSON body, and declared headers **once, in order**. Unexpected, wrong, missing, or exhausted requests fail the case—even if rescued by the agent. JSON `1`, `"1"`, `false`, and `null` stay distinct; omitting request `json:` requires an empty body.
 
-Each declaration must be consumed **once, in declared order**. Declare a repeated call twice. Unexpected requests, parameter mismatches, exhausted fixtures, and missing calls produce an agent error even if the agent rescues the request exception or returns the expected answer. Query order is insignificant; repeated values and their multiplicity are preserved. `expect_request(json: { count: 1, enabled: false }, headers: { "X-Region" => "eu" })` asserts typed JSON and only declared headers (header names are case-insensitive). String `"1"` is not number `1`, and `null` is not `false`. Omitting request `json:` requires an empty body.
+Replay wraps agent execution, supports WebMock-compatible clients, and persists redacted mismatch evidence. Seed database tools separately; there is no recording mode. Explicit `allow_hosts: ["api.openai.com"]` permits live model traffic without bypassing fixtures. Judges run outside replay.
 
-`respond_with` requires exactly one source: inline `json:` (including `json: nil` for JSON null), or `body_file: "fixtures/order.json"`. Files resolve relative to the spec file where the question was declared, not the process working directory. Missing files, invalid JSON, and invalid UTF-8 fail before agent execution. Exact file bytes, including whitespace and final newline, are snapshotted and returned unchanged. Optional `status:` defaults to 200; `headers:` defaults to an empty map.
+**Use a dedicated process:** WebMock interception is process-global, although replay cases serialize and restore caller state.
 
-Absolute `body_file:` paths are also accepted; prefer spec-relative paths for portable, shareable fixtures.
+## Reports and dashboard
 
-Replay is strict/offline by default: undeclared network requests fail. For live model requests made by the agent itself, explicitly use `api_interactions(allow_hosts: ["api.openai.com"]) do ... end`. Allowances match exact hosts, not suffixes or wildcards, and may incur provider charges. An allowed host never bypasses a declared fixture request. Judge calls need no replay allowance because judging runs outside replay. There is no recording mode.
+```sh
+bundle exec ruby_llm-agent-evaluations run support_eval.rb --fail-on-regression --tolerance 0.02
+bundle exec ruby_llm-agent-evaluations history --suite 'Return policy' --limit 50
+bundle exec ruby_llm-agent-evaluations report --format html --output report.html
+bundle exec ruby_llm-agent-evaluations report RUN_ID --baseline BASELINE_ID --format json
+```
 
-Case results persist `response_metadata["api_replay"]` on success and failure: expected interactions, observed match statuses, readable mismatch differences, and missing requests. Authentication/credential fields are redacted from replay evidence. Still use synthetic fixtures: never commit credentials or sensitive payloads, and protect persisted prompts, answers, and reports.
-
-Replay evidence uses the existing response-metadata display in reports and the dashboard; JSON reports include the persisted `response_metadata.api_replay` payload. No separate evidence store or migration is required.
-
-Request assertions, response status/headers, allowed hosts, and response-byte hashes participate in suite fingerprints. Changing fixture bytes (even JSON whitespace) creates an incompatible baseline, not a regression against the old fixture. Existing definitions retain snapshotted bytes; reload/redefine the spec to adopt file changes. Suites without replay keep their existing fingerprints.
-
-## Large tool-result evaluation
-
-[examples/context_bloat_eval.rb](examples/context_bloat_eval.rb) replays a roughly 500 KB JSON API response with the relevant current policy after a long history. It evaluates three independent requirements: the correct answer, the expected tool name/arguments, and a maximum 4,096-byte model-facing tool result. The normal tool extracts the relevant facts; `AGENT_REVISION=regressed` sends the entire response. A correct answer does not excuse exceeding the declared tool-result budget. Actual API and tool-result byte counts are saved in response metadata.
-
-This is a byte budget for tool output, not a tokenizer or a claim that the complete prompt fits every model window. The local integration test exercises actual RubyLLM HTTP/tool transport with scripted model responses; it does not prove model reasoning. Use the opt-in provider example to evaluate real model behavior. It requires your credentials and incurs charges; the external policy API remains replayed. A real provider context-limit failure is recorded as an agent error, never hidden.
-
-~~~sh
-# Requires DATABASE_URL, migrations, and your OPENAI_API_KEY.
-RUN_CONTEXT_BLOAT_EVAL=1 OPENAI_MODEL=gpt-4.1-mini bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/context_bloat_eval.rb
-
-# Intentionally expose oversized tool output; expect a failure or provider limit error.
-RUN_CONTEXT_BLOAT_EVAL=1 AGENT_REVISION=regressed OPENAI_MODEL=gpt-4.1-mini bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/context_bloat_eval.rb --fail-on-regression
-~~~
-
-WebMock interception is process-global. Replay cases are serialized and restore caller state, but run evaluations in a dedicated process rather than alongside unrelated application HTTP traffic. Custom transports outside WebMock support are not intercepted.
-
-## Optional judge agent in the suite constructor
-
-Use a class inheriting from RubyLLM::Agent (RubyLLM 1.14.1+). The evaluation suite creates a fresh instance for each assessment and calls its ask method, so judge conversations do not leak between metrics or questions:
-
-~~~ruby
-require "ruby_llm"
-require "ruby_llm/evaluations"
-
-class SupportJudgeAgent < RubyLLM::Agent
-  model ENV.fetch("EVAL_JUDGE_MODEL")
-end
-
-suite = RubyLLM::Evaluations::Suite.new(
-  "Customer support", agent: support_agent, judge: SupportJudgeAgent
-)
-suite.question "How long do I have to return an item?", expected_answer: "30 days",
-               minimum_scores: { semantic_accuracy: 0.9, answer_relevancy: 0.9 }
-~~~
-
-The define DSL forwards judge: to this same constructor. Provider credentials use your application's normal RubyLLM configuration; no separate evaluation-judge configuration is needed. Supplying a judge makes real model requests when the suite runs and can incur charges.
-
-Omit judge: to skip semantic_accuracy, answer_relevancy, and custom llm_judge checks. Declared minimum_scores and agent outputs are still persisted. A question with no calculated metrics is not_evaluated, not passed; score and pass rate are null when no questions were evaluated. Mixed suites calculate quality only from executed metrics and evaluated questions. A different calculated metric set changes the fingerprint, so runs that skipped LLM metrics are never automatic regression baselines for runs that calculated them.
-
-Judge replies must contain a finite numeric score in [0,1] and a nonempty string reason. Invalid replies and provider failures remain metric errors, never passing defaults. Model judgments are nondeterministic: calibrate thresholds against human-reviewed examples. Marking data untrusted does not eliminate prompt injection.
-
-[examples/ruby_llm_eval.rb](examples/ruby_llm_eval.rb) supplies a RubyLLM judge agent class to the suite. [examples/semantic_actions_eval.rb](examples/semantic_actions_eval.rb) combines real agent/tool/judge calls and all three dimensions. Configure provider credentials and EVAL_MODEL/EVAL_JUDGE_MODEL before running these opt-in examples; neither runs automatically.
-
-## Rails: named models and standard migrations
-
-Add the gem to your application's Gemfile. During local development, add `path: "/path/to/this/checkout"` to the declaration:
-
-~~~ruby
-gem "ruby_llm-agent-evaluations", "~> 0.2", require: "ruby_llm/evaluations"
-~~~
-
-Persistence uses the adapter selected by ActiveRecord: PostgreSQL, SQLite, or MySQL 8.0+. The gem does not require `pg` or another database driver; add your chosen driver to the application's Gemfile (or keep the one already used by your Rails host):
-
-~~~ruby
-gem "sqlite3"  # SQLite
-# gem "pg"    # PostgreSQL instead
-# gem "mysql2" # MySQL instead
-~~~
-
-Rails uses its existing database configuration and normal connection pool; no separate evaluation connection or storage configuration is needed. MySQL tables use `utf8mb4_0900_bin` so case, accents, and trailing spaces remain distinct in identifiers and baseline matching.
-
-Install the engine migrations into the host application, then migrate normally:
-
-~~~sh
-bin/rails ruby_llm_evaluations:install:migrations
-bin/rails db:migrate
-~~~
-
-For standalone use, run `ruby_llm-agent-evaluations db:migrate` once before the first evaluation. Rails applications install the single engine migration and run `bin/rails db:migrate` as shown above.
-
-The single migration creates exactly three evaluation tables: `ruby_llm_evaluations_runs`, `ruby_llm_evaluations_case_results`, and `ruby_llm_evaluations_metric_results`. It creates `minimum_scores` directly, with the foreign keys and indexes needed for history and baseline comparisons. No legacy tables, payload imports, or custom schema-version tables are required or inspected. ActiveRecord manages its ordinary migration bookkeeping. Execution uses the host connection pool and does not establish, migrate, or disconnect it.
-
-Existing PostgreSQL installations continue using their applied migration and saved history unchanged; no schema reset or history deletion is needed. Rails migrations already copied into a host are not automatically updated when the gem changes. New hosts should install the current engine migration; database portability does not require a legacy upgrade migration.
-
-~~~ruby
-# config/routes.rb
-Rails.application.routes.draw do
-  mount RubyLLM::Evaluations::Engine => "/evaluations"
-end
-~~~
-
-Visit /evaluations. Assets, filters, detail/baseline links, and downloads respect the mount path. The dashboard has **no built-in authentication**: protect it with application authorization or a trusted reverse proxy before exposing sensitive data. It accepts GET/HEAD only.
-
-## Offline quick start: exact match, not semantic judging
-
-Requirements: Ruby 3.2+, Bundler, and your chosen database driver (`sqlite3` for this quick start). Rails and RubyLLM are optional. This deterministic local demo runs without API keys and is deliberately separate from semantic judging. It performs a real local answer lookup and records that action; exact match is not a semantic judge.
-
-From this checkout, the development bundle supplies the drivers. Standalone consumers add the gem and their chosen driver to their own Gemfile, then use `bundle exec ruby_llm-agent-evaluations` in place of the checkout command below.
-
-~~~sh
-bundle install
-unset DATABASE_URL # Defaults to sqlite3:ruby_llm_evaluations.sqlite3 in the current directory.
-
-# Migrate once before executing specs. Runs never create tables implicitly.
-bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations db:migrate
-bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/support_eval.rb --metadata '{"revision":"reference"}'
-
-# Exit 1 is intentional: incorrect answer and wrong lookup arguments.
-AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/support_eval.rb --fail-on-regression --metadata '{"revision":"regressed"}'
-
-bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations history
-bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations dashboard
-~~~
-
-Open **http://127.0.0.1:4567**; Ctrl-C stops the server. The local SQLite file preserves evidence across restarts. Set DATABASE_URL to use another database or SQLite file; migrations remain an explicit setup step.
-
-### PostgreSQL or MySQL instead
-
-Install `pg` for PostgreSQL or `mysql2` for MySQL in your consumer Gemfile. For local services from this checkout:
-
-~~~sh
-docker compose up -d postgres mysql
-
-# PostgreSQL: the development database is provisioned by Compose.
-export DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluations'
-
-# Or MySQL: create a development database, then select it.
-docker compose exec -T mysql mysql -uroot -pdev-only -e 'CREATE DATABASE IF NOT EXISTS ruby_llm_evaluations;'
-export DATABASE_URL='mysql2://root:dev-only@127.0.0.1:53306/ruby_llm_evaluations'
-
-# With the selected URL, migrate once, then run the same demo.
-bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations db:migrate
-bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/support_eval.rb
-~~~
-
-Compose binds passwordless PostgreSQL to loopback port 55432 and MySQL 8.4 with the development-only root password `dev-only` to loopback port 53306. **Do not use these credentials/configurations in production.** Named volumes preserve database history; `docker compose stop` does not delete it. For your own service, set DATABASE_URL to an existing database with an appropriate application account.
-
-The offline example produces the following evidence:
-
-| Revision | Passing questions | Quality score | CLI exit |
-| --- | --- | --- | --- |
-| Reference | 3 of 3 | 1.000 | 0 |
-| Regressed | 2 of 3 | 0.667 | 1 |
-
-The regressed agent answers the return question with 7 days instead of 30 and looks up shipping rather than returns. Both the answer check and observed-action check fail.
-
-The standalone CLI alone establishes ActiveRecord::Base's connection. Standalone library callers configure it themselves:
-
-~~~ruby
-ActiveRecord::Base.establish_connection(ENV.fetch("DATABASE_URL", "sqlite3:ruby_llm_evaluations.sqlite3"))
-RubyLLM::Evaluations.migrate! # Once during database setup, not per run.
-~~~
-
-## Custom checks and action traces
-
-Explicit suite-level evaluators remain available for custom scoring and become defaults for questions without minimum_scores:
-
-~~~ruby
-RubyLLM::Evaluations.define("Concise answers", agent: your_agent) do
-  evaluate :conciseness, threshold: 0.8 do |output, context|
-    score = output.split.size <= context.metadata.fetch(:max_words) ? 1.0 : 0.0
-    RubyLLM::Evaluations::Assessment.new(score: score, reason: "Checked word budget")
-  end
-  question "Explain returns briefly", expected_answer: "Return within 30 days.",
-           minimum_scores: { conciseness: 0.8 }, metadata: { max_words: 12 }
-end
-~~~
-
-Evaluators receive (output, context). Context exposes id, name, question, expected_answer, expected_actions, minimum_scores, metadata, question_data, response, and the suite's judge agent class. Return Boolean, a finite score in [0,1], or an Assessment. Deterministic built-ins include exact_match, contains, matches(/pattern/), and valid_json; register them with evaluate(name, using:, threshold:). Evaluators.llm_judge(rubric:) supports custom rubrics and uses the constructor judge; without a judge it is skipped.
-
-Select action_group in question minimum_scores and declare the expected invocation trace:
-
-~~~ruby
-question "Track order 42", expected_answer: "Order 42 has shipped.",
-         minimum_scores: { action_group: 1.0 },
-         expected_actions: [{ group: "orders", name: "lookup_order", arguments: { id: 42 } }]
-~~~
-
-The agent must return **observed**, not assumed, calls:
-
-~~~ruby
-RubyLLM::Evaluations::Response.new(
-  output: "Order 42 has shipped.",
-  actions: [{ group: "orders", name: "lookup_order", arguments: { id: 42 } }],
-  input_tokens: 120, output_tokens: 18, cost: 0.0002,
-  metadata: { model: "your-model" }
-)
-~~~
-
-Group, name, arguments, and order must match exactly. Missing/incorrect/extra calls reduce the score. Expected actions require groups. actions: nil means missing instrumentation and produces an error; actions: [] honestly means observed no actions. A narrative promise is never evidence of execution.
-
-The RubyLLM adapter captures calls with action_groups: { "lookup_order" => "orders" }; unknown groups remain nil, not invented. Its factory must return a fresh chat for each call. Plain RubyLLM messages normalize output/usage but do not contain preceding action traces. Generic callables are reused: create fresh state inside the callable when needed. Runner copies question data so agent mutation cannot alter the suite.
-
-## Persisted evidence and compatible baselines
-
-~~~ruby
+```ruby
 run = RubyLLM::Evaluations.run(suite, metadata: { revision: "candidate" })
-# An actual RubyLLM::Evaluations::Run ActiveRecord record.
 report = RubyLLM::Evaluations::Report.new(run, baseline: run.previous, tolerance: 0.02)
-report.export("agent-report.html")
+report.export("report.html") # Also .json, .md, or .txt; export writes the file.
+```
 
-RubyLLM::Evaluations::Run.recent.for_suite("Customer support").with_results
-run.case_results.first.metric_results
-snapshot = run.snapshot # Detached JSON-portable evidence, not a persistence API.
-~~~
+Runs have immutable UUIDs and append-only model APIs. Baselines are chronological, never from the future. Invalid/incompatible explicit baselines fail before agent execution; tolerance never hides newly failed thresholds or errors.
 
-Report#export writes the file itself and returns its path. The extension chooses HTML (.html/.htm), JSON (.json), Markdown (.md/.markdown), or text (.txt/.text). Use report.export("agent-report", format: :html) when the filename has no recognized extension. Unknown formats fail before writing; file-system errors propagate. String-returning to_html/to_json/to_markdown/to_text remain available for in-memory use.
+CLI exits: **0** no failed checks/gated regression, **1** failed/errored checks or gated regression, **2** invalid input/configuration. Exit 0 does not establish quality when all metrics were skipped. JSON exports contain the run plus `comparison`; usage totals cover reported agent usage, not judge usage.
 
-Run, CaseResult, and MetricResult records are readonly after persistence through normal ActiveRecord APIs. Runner finishes agent/judge calls before the short atomic save transaction; errors are recorded and other questions/checks continue. Runner.new.run(suite, metadata: {}) is also available.
+The dashboard exposes filters, scores, baseline comparisons, case evidence, and JSON downloads. HTML reports escape output and need no external assets. This capture shows persisted offline evaluations, not live model reasoning:
 
-Baselines are earlier runs matching suite, agent, and typed definition fingerprint, with database-generated sequence breaking timestamp ties. Fingerprints cover question data, expected answers/actions, metric names and thresholds in minimum_scores, metadata, and explicit suite version. Changing minimum_scores changes the definition fingerprint, so different threshold sets are not automatically compared. Renaming the API alone preserves existing definition fingerprints and baseline history. **Bump version when changing evaluator implementations, rubrics, or judge configuration**; callable source is not hashed. Keep agent identity stable across revisions and record revision/model/prompt information in run metadata.
+![Evaluation history, quality trends, and baseline changes](docs/images/dashboard-history.png)
 
-A question passes only when at least one metric was calculated and every calculated metric passes without error. With no calculated metrics it is not_evaluated. Case quality averages calculated metric scores (metric errors contribute zero); agent errors yield zero. Run quality and pass rate exclude not-evaluated questions and are null when no questions were evaluated. Completed status means execution finished, not success. Token/cost totals include only reported agent usage, not judge usage; zero totals do not prove zero cost. Response costs are USD for dashboard display.
+<details>
+<summary>More screenshots</summary>
 
-Regression comparison is separate from minimum-score passing: it compares later observed scores against a previous run of the same definition. Use --fail-on-regression to make regressions fail the CLI gate and --tolerance to allow small score decreases. Regressions include score decreases beyond tolerance, newly failed thresholds, and new errors. Tolerance does not hide new failures/errors. Missing/incompatible explicit baselines are rejected before agent execution; automatic historical baselines never come from the future.
-
-For example, with a semantic-accuracy minimum of 0.9, a previous score of 0.98 and a later score of 0.92 both pass the minimum. The later run nevertheless regresses by 0.06 when tolerance is 0.02, so --fail-on-regression fails the gate. On the first run, the same minimum applies but there is no previous score to compare.
-
-~~~sh
-ruby_llm-agent-evaluations run your_eval.rb --fail-on-regression --tolerance 0.02
-ruby_llm-agent-evaluations run your_eval.rb --baseline RUN_ID --fail-on-regression
-ruby_llm-agent-evaluations history --suite 'Customer support' --agent SupportAgent --limit 50
-ruby_llm-agent-evaluations report --format html --output agent.html
-ruby_llm-agent-evaluations report --format markdown --output agent.md
-ruby_llm-agent-evaluations report RUN_ID --baseline BASELINE_ID --format json
-~~~
-
-CLI exits: **0** no failed/errored calculated checks or regression gate, **1** failed/errored checks or detected gated regression, **2** invalid specification/options/configuration/baseline. Exit 0 does not claim quality when all checks were skipped; inspect not_evaluated and null scores. HTML reports escape output and need no external assets. JSON contains the top-level run snapshot plus comparison, with per-case metrics (not a run wrapper). The dashboard offers JSON downloads.
-
-## Dashboard evidence
-
-These current screenshots were captured from persisted offline PostgreSQL runs and generated reports. They show deterministic exact-match/action checks, real history, and regression evidence—not live model reasoning.
-
-![Evaluation history and quality trends](docs/images/dashboard-history.png)
-![Regression report](docs/images/dashboard-regression.png)
-![Case answer and observed actions](docs/images/dashboard-case.png)
+![Regression detail](docs/images/dashboard-regression.png)
+![Answers and observed actions](docs/images/dashboard-case.png)
 ![Standalone HTML report](docs/images/html-report.png)
-![Narrow dashboard](docs/images/dashboard-mobile.png)
+![Mobile dashboard](docs/images/dashboard-mobile.png)
+![Without a judge: unavailable quality, no invented scores](docs/images/dashboard-without-judge.png)
 
-With no judge supplied, the actual dashboard records answers but leaves quality unavailable and draws no invented trend. This capture uses RubyLLM against a local scripted HTTP provider, not live model reasoning:
+</details>
 
-![Persisted answers without a judge: unavailable quality and no fabricated scores](docs/images/dashboard-without-judge.png)
+## Examples
 
-## Development and packaging
+| Example | Purpose | Provider calls |
+| --- | --- | --- |
+| [Offline support](examples/support_eval.rb) | Answers, actions, regression gating. | None |
+| [API replay](examples/api_replay_eval.rb) | Inline/file fixtures and request arguments. | None |
+| [RubyLLM judging](examples/ruby_llm_eval.rb) | Semantic accuracy and relevancy. | Paid; opt-in |
+| [Semantic + actions](examples/semantic_actions_eval.rb) | Answer and tool correctness together. | Paid; opt-in |
+| [Context bloat](examples/context_bloat_eval.rb) | ~500 KB fixture, tool arguments, 4,096-byte tool-result budget. | Paid; opt-in |
 
-Integration tests always: behavior changes must update end-to-end coverage. Exercise real SQLite, PostgreSQL, and MySQL persistence and consumer smoke flows; integration tests must never silently skip an unavailable database. These are development-check requirements, not a requirement that consumers install every driver or run every server.
+The bloat example measures **bytes**, not tokens or universal context-window fit. Scripted-provider tests prove transport, not model reasoning. Bundled RubyLLM adapters/judges target **1.x (1.14.1+)**; 2.x adapter compatibility is not claimed. Generic callables do not require RubyLLM.
 
-~~~sh
+## Safety
+
+Specs execute trusted Ruby. Evaluation data persists: use synthetic fixtures, redact sensitive information, and manage retention/backups. Never commit credentials, production data, databases, or sensitive reports. Judges are nondeterministic; calibrate against human review. Prompt injection remains a risk. The standalone dashboard is loopback-bound and GET/HEAD-only by default.
+
+<details>
+<summary>Development and publishing</summary>
+
+Install native client headers required by `pg`/`mysql2`, then from this checkout:
+
+```sh
 bundle install
-docker compose up -d postgres mysql
+docker compose up -d --wait postgres mysql
+# Once, if the test database does not exist:
 docker compose exec -T postgres createdb -U postgres ruby_llm_evaluations_test
 export TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluations_test'
 export TEST_MYSQL_DATABASE_URL='mysql2://root:dev-only@127.0.0.1:53306/mysql'
 bundle exec rake integration
 bundle exec rake test
+```
 
-gem build ruby_llm-agent-evaluations.gemspec
-gem install ./ruby_llm-agent-evaluations-0.2.2.gem
-ruby_llm-agent-evaluations --help
-~~~
+Tests isolate SQLite files, PostgreSQL schemas, and MySQL databases; test accounts need creation privileges. Default tests never call paid providers. Consumers need only their chosen driver. Compose credentials are **development-only**, bound to loopback. See [engineering guidance](.agents/AGENTS.md).
 
-Tests isolate temporary SQLite files, PostgreSQL schemas, and MySQL databases rather than clear development history. The PostgreSQL test role needs schema-creation privileges; the MySQL test account needs database-creation/deletion privileges on the test server. SQLite needs no service or test URL. Local HTTP provider fixtures verify real adapter transport/orchestration, not model reasoning. Default tests never call paid providers. For UI changes inspect desktop/narrow layouts, keyboard access, filters, chart navigation, and downloads. Shared engineering guidance and specialist skills live in [.agents/](.agents/AGENTS.md).
+To publish, bump `lib/ruby_llm/evaluations/version.rb`, update [CHANGELOG](CHANGELOG.md), then:
 
-## Publishing
-
-The release version is defined in `lib/ruby_llm/evaluations/version.rb`. Bump it and update CHANGELOG before publishing; RubyGems does not allow replacing an existing version.
-
-~~~sh
-export TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluations_test'
-export TEST_MYSQL_DATABASE_URL='mysql2://root:dev-only@127.0.0.1:53306/mysql'
-bundle install
+```sh
 bundle exec ruby script/publish --dry-run
-
-# Authenticate locally; never paste or commit an API key.
 gem signin
-# Commit the version, changelog, and release changes before upload.
+# Commit release changes before uploading.
 bundle exec ruby script/publish
-~~~
+```
 
-The script runs integration tests and the full suite, builds the gem, rejects private paths in its manifest, installs into a temporary GEM_HOME, and executes inline/file API replay against an isolated PostgreSQL schema outside the checkout. It verifies persisted evidence and argument-mismatch regression. Temporary package, installation, and schema are removed afterward. `--dry-run` runs these gates without credentials or upload. Normal publication requires a clean committed working tree and uploads only to `https://rubygems.org`; existing RubyGems credentials or `GEM_HOST_API_KEY` are supported. Credentials need permission to push this gem; RubyGems may additionally request MFA. No version bumps, git commits, tags, or pushes happen implicitly.
+The script gates upload on tests, package checks, and installed-gem replay/persistence smoke. Dry runs upload nothing. Publication requires a clean committed tree and push-authorized RubyGems credentials (`GEM_HOST_API_KEY` supported); MFA may apply. Versions cannot be replaced. Git commits/tags/pushes are not automatic.
 
-RubyLLM remains optional. The development bundle and provider-backed examples currently target RubyLLM 1.x; this release does not claim RubyLLM 2.x adapter compatibility. Default release checks do not call paid providers.
+</details>
 
-## Data and security
-
-Specs execute trusted code. Answers and judge data are untrusted. Prompts, references, traces, errors, and metadata persist in the database and exports: redact sensitive information and manage retention/backups. Never commit credentials or production data. No hosted backend, external dashboard assets, framework provider retries, or automatic-success fallbacks are supplied.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+[MIT license](LICENSE) · [Changelog](CHANGELOG.md) · [RubyGems](https://rubygems.org/gems/ruby_llm-agent-evaluations)
