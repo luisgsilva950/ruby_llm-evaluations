@@ -41,7 +41,7 @@ module RubyLLM
           return 0
         end
         unless [Run, CaseResult, MetricResult].all?(&:table_exists?)
-          raise Error, "Evaluation tables are missing. Run ruby_llm-evaluations db:migrate, or install the engine migrations and run bin/rails db:migrate."
+          raise Error, "Evaluation tables are missing. Run ruby_llm-agent-evaluations db:migrate, or install the engine migrations and run bin/rails db:migrate."
         end
         case command
         when "run" then execute(args, options)
@@ -50,7 +50,7 @@ module RubyLLM
         when "dashboard" then dashboard(args, options)
         end
       rescue ::ActiveRecord::ActiveRecordError
-        @err.puts("Database configuration error. Check DATABASE_URL and PostgreSQL availability; run ruby_llm-evaluations db:migrate to create evaluation tables.")
+        @err.puts("Database configuration error. Check DATABASE_URL and PostgreSQL availability; run ruby_llm-agent-evaluations db:migrate to create evaluation tables.")
         2
       rescue OptionParser::ParseError, ArgumentError, Error, SystemCallError, JSON::ParserError, SyntaxError => exception
         @err.puts("#{exception.class}: #{exception.message}")
@@ -63,7 +63,7 @@ module RubyLLM
         OptionParser.new do |parser|
           usage = { "run" => "run SPEC.rb", "history" => "history", "report" => "report [RUN_ID]",
                     "dashboard" => "dashboard", "db:migrate" => "db:migrate" }.fetch(command)
-          parser.banner = "Usage: ruby_llm-evaluations #{usage} [options]"
+          parser.banner = "Usage: ruby_llm-agent-evaluations #{usage} [options]"
           parser.on("--database-url URL", "PostgreSQL URL (default: DATABASE_URL or local database)") { |value| options[:database_url] = value }
           if %w[run report].include?(command)
             parser.on("--format FORMAT", FORMATS, "text, markdown, html, or json") { |value| options[:format] = value }
@@ -189,8 +189,8 @@ module RubyLLM
 
       def help
         @out.puts(<<~HELP)
-          ruby_llm-evaluations #{VERSION}
-          Usage: ruby_llm-evaluations COMMAND [options]
+          ruby_llm-agent-evaluations #{VERSION}
+          Usage: ruby_llm-agent-evaluations COMMAND [options]
 
           run SPEC.rb        Execute a code-defined evaluation and persist its results
           history            List previous runs, newest first

@@ -3,7 +3,7 @@
 require_relative "lib/ruby_llm/evaluations/version"
 
 Gem::Specification.new do |spec|
-  spec.name = "ruby_llm-evaluations"
+  spec.name = "ruby_llm-agent-evaluations"
   spec.version = RubyLLM::Evaluations::VERSION
   spec.authors = ["RubyLLM Evaluations contributors"]
   spec.summary = "Code-defined agent evaluations with persistent history, regression reports, and a dashboard"
@@ -13,7 +13,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.2"
   spec.files = Dir["lib/**/*", "app/models/**/*", "db/migrate/*.rb", "config/routes.rb", "exe/*", "README.md", "CHANGELOG.md", "LICENSE", "examples/**/*", "docs/images/*.png"]
   spec.bindir = "exe"
-  spec.executables = ["ruby_llm-evaluations"]
+  spec.executables = ["ruby_llm-agent-evaluations"]
   spec.require_paths = ["lib"]
   spec.add_dependency "activerecord", ">= 7.1", "< 9"
   spec.add_dependency "pg", ">= 1.5", "< 2"

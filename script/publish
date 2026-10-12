@@ -13,7 +13,7 @@ abort "Usage: bundle exec ruby script/publish [--dry-run]" unless ARGV.empty? ||
 dry_run = ARGV == ["--dry-run"]
 Dir.chdir(File.expand_path("..", __dir__))
 root = Dir.pwd
-spec = Gem::Specification.load("ruby_llm-evaluations.gemspec")
+spec = Gem::Specification.load("ruby_llm-agent-evaluations.gemspec")
 abort "Cannot load gemspec" unless spec
 host = "https://rubygems.org"
 
@@ -50,7 +50,7 @@ sandbox = PostgresSandbox.new
 begin
   Dir.mktmpdir("ruby-llm-release-") do |directory|
     package = File.join(directory, "#{spec.name}-#{spec.version}.gem")
-    run.call(RbConfig.ruby, "-S", "gem", "build", "ruby_llm-evaluations.gemspec", "--output", package)
+    run.call(RbConfig.ruby, "-S", "gem", "build", "ruby_llm-agent-evaluations.gemspec", "--output", package)
     manifest = Gem::Package.new(package).spec
     abort "Package version mismatch" unless manifest.version == spec.version
     forbidden = manifest.files.select { |file| file.match?(%r{\A(?:test/|tmp/|log/|reports/|\.git/)|(?:\A|/)credentials(?:\z|/)|\.env(?:\z|\.)}) }
@@ -65,10 +65,14 @@ begin
                       "RUBYLIB" => nil, "RUBYOPT" => nil, "DATABASE_URL" => sandbox.database_url,
                       "RELEASE_VERSION" => spec.version.to_s, "RELEASE_GEM_HOME" => File.realpath(gem_home),
                       "AGENT_REVISION" => nil }
+      executable = File.join(gem_home, "bin", spec.executables.fetch(0))
+      output, status = Open3.capture2e(environment, RbConfig.ruby, executable, "--help", chdir: directory)
+      puts output
+      abort "Installed executable smoke failed" unless status.success?
       smoke = <<~'RUBY'
         require "ruby_llm/evaluations"
         E = RubyLLM::Evaluations
-        installed = Gem.loaded_specs.fetch("ruby_llm-evaluations")
+        installed = Gem.loaded_specs.fetch("ruby_llm-agent-evaluations")
         abort "Loaded checkout instead of installed package" unless installed.full_gem_path.start_with?(ENV.fetch("RELEASE_GEM_HOME") + "/")
         abort "Wrong installed version" unless E::VERSION == ENV.fetch("RELEASE_VERSION")
         ActiveRecord::Base.establish_connection(ENV.fetch("DATABASE_URL"))

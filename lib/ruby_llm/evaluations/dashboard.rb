@@ -42,7 +42,7 @@ module RubyLLM
         status, headers, body = dispatch(env)
         [status, headers, method == "HEAD" ? [] : body]
       rescue ::ActiveRecord::ActiveRecordError
-        status, headers, body = response(503, error_page(503, "Database configuration required", "Configure the host ActiveRecord connection and apply the evaluation migrations. Standalone users: run ruby_llm-evaluations db:migrate."))
+        status, headers, body = response(503, error_page(503, "Database configuration required", "Configure the host ActiveRecord connection and apply the evaluation migrations. Standalone users: run ruby_llm-agent-evaluations db:migrate."))
         [status, headers, method == "HEAD" ? [] : body]
       rescue ArgumentError, URI::InvalidURIError => error
         status, headers, body = response(400, error_page(400, "Invalid request", error.message))

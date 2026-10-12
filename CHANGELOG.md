@@ -2,13 +2,13 @@
 
 ## 0.2.0
 
-- Add `script/publish` with integration/full-suite gates, isolated installed-package PostgreSQL smoke, manifest checks, and an upload-free `--dry-run`. Publication requires a clean committed tree and RubyGems credentials.
-
+- Publish this project as `ruby_llm-agent-evaluations` to avoid the separately owned RubyGems package. Rename the executable and gemspec; preserve `RubyLLM::Evaluations`, `ruby_llm/evaluations`, Rails migration tasks, and PostgreSQL history. Version 0.2.0 is the first RubyGems release under the new name; the earlier section records this project's development history.
+- Add `script/publish` with integration/full-suite gates, isolated installed-package CLI/PostgreSQL smoke, manifest checks, and an upload-free `--dry-run`. Publication requires a clean committed tree and RubyGems credentials.
 - Add strict question-scoped API replay for Net::HTTP and Faraday: ordered one-use request assertions, inline JSON or exact-byte JSON files, explicit live-host allowances, and persisted redacted mismatch evidence. Fixture definitions and response-byte hashes participate in compatible-baseline fingerprints; suites without replay keep their fingerprints.
 - Add a large-response evaluation with independent answer, action-argument, and model-facing tool-result budget checks, a bounded/raw-output regression, and an opt-in OpenAI example.
 - Rename the question keyword and evaluation context field from `criteria` to `minimum_scores`, with no compatibility alias. Update specifications and custom evaluators to use the new name. Scores use absolute inclusive per-metric minimums on every run, including the first; previous-run regression comparison remains separate. Equivalent definitions retain their historical fingerprints, while changing metric names or thresholds changes the fingerprint.
 - Keep Ruby 3.2 CI dependencies compatible by constraining development RBS below 4; use the Node 24 checkout action.
-- Preserve existing PostgreSQL history while migrating stored minimum-score names. Rails hosts upgrade with `bin/rails ruby_llm_evaluations:install:migrations` followed by `bin/rails db:migrate`; standalone users run `ruby_llm-evaluations db:migrate`.
+- Preserve existing PostgreSQL history while migrating stored minimum-score names. Rails hosts upgrade with `bin/rails ruby_llm_evaluations:install:migrations` followed by `bin/rails db:migrate`; standalone users run `ruby_llm-agent-evaluations db:migrate`.
 
 ## 0.1.0
 

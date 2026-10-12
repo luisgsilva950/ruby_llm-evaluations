@@ -2,7 +2,7 @@
 
 ## Product and boundaries
 
-Build `ruby_llm-evaluations`: a Ruby gem and optional Rails engine for question-first evaluations of any callable agent, durable PostgreSQL history, compatible-baseline regression reports, and a read-only dashboard. Keep all four capabilities working together. Semantic accuracy, answer relevancy, and action-group correctness are first-class dimensions. RubyLLM is optional; Rails hosts use their normal ActiveRecord connection and migration lifecycle.
+Build `ruby_llm-agent-evaluations`: a Ruby gem and optional Rails engine for question-first evaluations of any callable agent, durable PostgreSQL history, compatible-baseline regression reports, and a read-only dashboard. Keep all four capabilities working together. Semantic accuracy, answer relevancy, and action-group correctness are first-class dimensions. RubyLLM is optional; Rails hosts use their normal ActiveRecord connection and migration lifecycle.
 
 ## Design stance
 
@@ -53,7 +53,7 @@ Source paths are inside `lib/ruby_llm/evaluations/` unless otherwise noted.
 3. Demonstrate bugs before fixes. Keep focused behavior regression tests when useful.
 4. Integration tests always. Every behavior change must add or update end-to-end integration coverage. Run the integration suite on every change, including harness changes, then `bundle exec rake test`. Unit tests supplement integration tests, never replace them. Assert behavior, not source wording or wiring.
 5. Smoke the actual path using real PostgreSQL. Execute specs, reopen history, compare baselines, and inspect generated reports. Provider-transport fixtures may run over local HTTP; do not claim they prove model reasoning. For UI changes, launch the real dashboard and use a browser at desktop and narrow widths.
-6. For packaging, run `gem build ruby_llm-evaluations.gemspec` and exercise the installed gem outside this checkout.
+6. For packaging, run `gem build ruby_llm-agent-evaluations.gemspec` and exercise the installed gem outside this checkout.
 7. Update README/CHANGELOG for public changes. Remove temporary scaffolds. Report only observed verification and explicit limitations.
 
 Follow the README PostgreSQL setup and export `DATABASE_URL` / `TEST_DATABASE_URL` before running these commands.
@@ -61,10 +61,10 @@ Follow the README PostgreSQL setup and export `DATABASE_URL` / `TEST_DATABASE_UR
 ```sh
 bundle install
 bundle exec rake test
-bundle exec ruby -Ilib exe/ruby_llm-evaluations db:migrate
-bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/support_eval.rb
-AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/support_eval.rb --fail-on-regression
-bundle exec ruby -Ilib exe/ruby_llm-evaluations dashboard
+bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations db:migrate
+bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/support_eval.rb
+AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/support_eval.rb --fail-on-regression
+bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations dashboard
 ```
 
 The regressed example intentionally exits 1. Provider-backed examples are opt-in, require consumer credentials, and incur charges; never run them as default checks.

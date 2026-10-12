@@ -28,7 +28,7 @@ class CLITest < Minitest::Test
 
   def cli(*arguments, quality: "0.9")
     Open3.capture3({ "QUALITY" => quality }, RbConfig.ruby, "-I", File.expand_path("../../lib", __dir__),
-                  File.expand_path("../../exe/ruby_llm-evaluations", __dir__), *arguments, "--database-url", @database)
+                  File.expand_path("../../exe/ruby_llm-agent-evaluations", __dir__), *arguments, "--database-url", @database)
   end
 
   def test_regression_gate_catches_a_score_drop_when_cases_still_pass

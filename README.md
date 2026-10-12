@@ -1,8 +1,16 @@
-# RubyLLM Evaluations
+# RubyLLM Agent Evaluations
 
 Write questions and expected answers in Ruby, declare what matters, and keep evaluation evidence in PostgreSQL. Compare compatible runs and inspect answers, metrics, errors, and action traces in a read-only dashboard.
 
 Works with any callable agent. RubyLLM is optional; Rails applications use named ActiveRecord models sharing their normal host connection pool.
+
+Install the package as `ruby_llm-agent-evaluations`:
+
+~~~ruby
+gem "ruby_llm-agent-evaluations", "~> 0.2", require: "ruby_llm/evaluations"
+~~~
+
+The executable is `ruby_llm-agent-evaluations`. The Ruby API remains `RubyLLM::Evaluations` with `require "ruby_llm/evaluations"`; Rails migration tasks and PostgreSQL table names are unchanged, preserving existing history. The separately owned `ruby_llm-evaluations` package on RubyGems is not this project. The GitHub repository keeps its existing name.
 
 ## Question-first specifications
 
@@ -62,9 +70,9 @@ E.define("Shipping API", agent: shipping_agent, agent_name: "ShippingAgent") do
 end
 ~~~
 
-Save it as `shipping_eval.rb`, then run `ruby_llm-evaluations run shipping_eval.rb` after migrations. [examples/api_replay_eval.rb](examples/api_replay_eval.rb) also demonstrates file responses. Replay supports Net::HTTP and Faraday through standard WebMock-supported transports; it does not replace your agent or HTTP client. Only the agent call is wrapped, not evaluators or judges. Existing mock registrations, network configuration, and enabled adapters are restored after each case, including failures.
+Save it as `shipping_eval.rb`, then run `ruby_llm-agent-evaluations run shipping_eval.rb` after migrations. [examples/api_replay_eval.rb](examples/api_replay_eval.rb) also demonstrates file responses. Replay supports Net::HTTP and Faraday through standard WebMock-supported transports; it does not replace your agent or HTTP client. Only the agent call is wrapped, not evaluators or judges. Existing mock registrations, network configuration, and enabled adapters are restored after each case, including failures.
 
-Run the bundled two-source example with `bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/api_replay_eval.rb`. Then run `AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/api_replay_eval.rb --fail-on-regression` to send deliberately wrong order arguments; strict replay records the mismatch and the regression gate exits nonzero.
+Run the bundled two-source example with `bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/api_replay_eval.rb`. Then run `AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/api_replay_eval.rb --fail-on-regression` to send deliberately wrong order arguments; strict replay records the mismatch and the regression gate exits nonzero.
 
 Each declaration must be consumed **once, in declared order**. Declare a repeated call twice. Unexpected requests, parameter mismatches, exhausted fixtures, and missing calls produce an agent error even if the agent rescues the request exception or returns the expected answer. Query order is insignificant; repeated values and their multiplicity are preserved. `expect_request(json: { count: 1, enabled: false }, headers: { "X-Region" => "eu" })` asserts typed JSON and only declared headers (header names are case-insensitive). String `"1"` is not number `1`, and `null` is not `false`. Omitting request `json:` requires an empty body.
 
@@ -88,10 +96,10 @@ This is a byte budget for tool output, not a tokenizer or a claim that the compl
 
 ~~~sh
 # Requires DATABASE_URL, migrations, and your OPENAI_API_KEY.
-RUN_CONTEXT_BLOAT_EVAL=1 OPENAI_MODEL=gpt-4.1-mini bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/context_bloat_eval.rb
+RUN_CONTEXT_BLOAT_EVAL=1 OPENAI_MODEL=gpt-4.1-mini bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/context_bloat_eval.rb
 
 # Intentionally expose oversized tool output; expect a failure or provider limit error.
-RUN_CONTEXT_BLOAT_EVAL=1 AGENT_REVISION=regressed OPENAI_MODEL=gpt-4.1-mini bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/context_bloat_eval.rb --fail-on-regression
+RUN_CONTEXT_BLOAT_EVAL=1 AGENT_REVISION=regressed OPENAI_MODEL=gpt-4.1-mini bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/context_bloat_eval.rb --fail-on-regression
 ~~~
 
 WebMock interception is process-global. Replay cases are serialized and restore caller state, but run evaluations in a dedicated process rather than alongside unrelated application HTTP traffic. Custom transports outside WebMock support are not intercepted.
@@ -125,10 +133,10 @@ Judge replies must contain a finite numeric score in [0,1] and a nonempty string
 
 ## Rails: named models and standard migrations
 
-Add the gem to your application's Gemfile (use a local path during development):
+Add the gem to your application's Gemfile. During local development, add `path: "/path/to/this/checkout"` to the declaration:
 
 ~~~ruby
-gem "ruby_llm-evaluations", path: "/path/to/ruby_llm-evaluations"
+gem "ruby_llm-agent-evaluations", "~> 0.2", require: "ruby_llm/evaluations"
 ~~~
 
 Install the engine migrations into the host application, then migrate normally:
@@ -138,7 +146,7 @@ bin/rails ruby_llm_evaluations:install:migrations
 bin/rails db:migrate
 ~~~
 
-When upgrading, repeat the install:migrations and db:migrate commands to install and apply new engine migrations; keep existing migrations and history. Standalone users instead run ruby_llm-evaluations db:migrate before their next run.
+When upgrading, repeat the install:migrations and db:migrate commands to install and apply new engine migrations; keep existing migrations and history. Standalone users instead run ruby_llm-agent-evaluations db:migrate before their next run.
 
 PostgreSQL is required. Tables are ruby_llm_evaluations_runs, ruby_llm_evaluations_case_results, and ruby_llm_evaluations_metric_results. Existing legacy payload history is migrated, not discarded. There are no Store objects, dynamically allocated models, or separate connection pools. Execution does not establish, migrate, or disconnect the host pool.
 
@@ -161,14 +169,14 @@ docker compose up -d --wait
 export DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluations'
 
 # Migrate once before executing specs. Runs never create tables implicitly.
-bundle exec ruby -Ilib exe/ruby_llm-evaluations db:migrate
-bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/support_eval.rb --metadata '{"revision":"reference"}'
+bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations db:migrate
+bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/support_eval.rb --metadata '{"revision":"reference"}'
 
 # Exit 1 is intentional: incorrect answer and wrong lookup arguments.
-AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/support_eval.rb --fail-on-regression --metadata '{"revision":"regressed"}'
+AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations run examples/support_eval.rb --fail-on-regression --metadata '{"revision":"regressed"}'
 
-bundle exec ruby -Ilib exe/ruby_llm-evaluations history
-bundle exec ruby -Ilib exe/ruby_llm-evaluations dashboard
+bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations history
+bundle exec ruby -Ilib exe/ruby_llm-agent-evaluations dashboard
 ~~~
 
 Open **http://127.0.0.1:4567**; Ctrl-C stops the server. PostgreSQL evidence survives restarts. Compose binds passwordless development PostgreSQL to loopback port 55432; **do not use this configuration in production**. Its named volume preserves history; docker compose stop does not delete it. For your own service, set DATABASE_URL to an existing database.
@@ -255,12 +263,12 @@ Regression comparison is separate from minimum-score passing: it compares later 
 For example, with a semantic-accuracy minimum of 0.9, a previous score of 0.98 and a later score of 0.92 both pass the minimum. The later run nevertheless regresses by 0.06 when tolerance is 0.02, so --fail-on-regression fails the gate. On the first run, the same minimum applies but there is no previous score to compare.
 
 ~~~sh
-ruby_llm-evaluations run your_eval.rb --fail-on-regression --tolerance 0.02
-ruby_llm-evaluations run your_eval.rb --baseline RUN_ID --fail-on-regression
-ruby_llm-evaluations history --suite 'Customer support' --agent SupportAgent --limit 50
-ruby_llm-evaluations report --format html --output agent.html
-ruby_llm-evaluations report --format markdown --output agent.md
-ruby_llm-evaluations report RUN_ID --baseline BASELINE_ID --format json
+ruby_llm-agent-evaluations run your_eval.rb --fail-on-regression --tolerance 0.02
+ruby_llm-agent-evaluations run your_eval.rb --baseline RUN_ID --fail-on-regression
+ruby_llm-agent-evaluations history --suite 'Customer support' --agent SupportAgent --limit 50
+ruby_llm-agent-evaluations report --format html --output agent.html
+ruby_llm-agent-evaluations report --format markdown --output agent.md
+ruby_llm-agent-evaluations report RUN_ID --baseline BASELINE_ID --format json
 ~~~
 
 CLI exits: **0** no failed/errored calculated checks or regression gate, **1** failed/errored checks or detected gated regression, **2** invalid specification/options/configuration/baseline. Exit 0 does not claim quality when all checks were skipped; inspect not_evaluated and null scores. HTML reports escape output and need no external assets. JSON contains the top-level run snapshot plus comparison, with per-case metrics (not a run wrapper). The dashboard offers JSON downloads.
@@ -289,9 +297,9 @@ export TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55432/ruby_llm_evaluat
 bundle exec rake integration
 bundle exec rake test
 
-gem build ruby_llm-evaluations.gemspec
-gem install ./ruby_llm-evaluations-0.2.0.gem
-ruby_llm-evaluations --help
+gem build ruby_llm-agent-evaluations.gemspec
+gem install ./ruby_llm-agent-evaluations-0.2.0.gem
+ruby_llm-agent-evaluations --help
 ~~~
 
 Tests isolate PostgreSQL schemas rather than clear development history; the test role needs schema-creation privileges. Local HTTP provider fixtures verify real adapter transport/orchestration, not model reasoning. Default tests never call paid providers. For UI changes inspect desktop/narrow layouts, keyboard access, filters, chart navigation, and downloads. Shared engineering guidance and specialist skills live in [.agents/](.agents/AGENTS.md).

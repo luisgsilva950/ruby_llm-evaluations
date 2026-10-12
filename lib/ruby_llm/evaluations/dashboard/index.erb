@@ -8,7 +8,7 @@
   </form><p class="filter-hint">Showing up to <%= limit %> most recent matching runs. Filter choices include the latest 1,000 runs.</p>
 </section>
 <% if runs.empty? %>
-<section class="panel empty-state"><div class="empty-icon" aria-hidden="true">↗</div><h2>No evaluation runs yet</h2><p><%= query.values.any? { |value| !value.empty? } ? "No runs match these filters. Reset the filters to explore your history." : "Run an evaluation suite and save its results to begin building your quality history." %></p><% if query.values.any? { |value| !value.empty? } %><a class="button primary" href="<%= ui.h(ui.path("/")) %>">Show all runs</a><% else %><pre class="command">ruby_llm-evaluations run path/to/suite.rb</pre><% end %></section>
+<section class="panel empty-state"><div class="empty-icon" aria-hidden="true">↗</div><h2>No evaluation runs yet</h2><p><%= query.values.any? { |value| !value.empty? } ? "No runs match these filters. Reset the filters to explore your history." : "Run an evaluation suite and save its results to begin building your quality history." %></p><% if query.values.any? { |value| !value.empty? } %><a class="button primary" href="<%= ui.h(ui.path("/")) %>">Show all runs</a><% else %><pre class="command">ruby_llm-agent-evaluations run path/to/suite.rb</pre><% end %></section>
 <% else %>
 <% evaluated_cases = runs.sum { |run| run["summary"].fetch("evaluated_cases", run["summary"]["cases"] - run["summary"].fetch("not_evaluated", 0)) }; total_passed = runs.sum { |run| run["summary"]["passed"] }; regression_count = comparisons.values.compact.count { |comparison| comparison["regressed"] }; latest = runs.first %>
 <section class="stats-grid" aria-label="History summary">
