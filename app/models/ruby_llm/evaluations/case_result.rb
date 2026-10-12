@@ -18,13 +18,17 @@ module RubyLLM
       validates :duration_ms, numericality: { greater_than_or_equal_to: 0 }
       validate :validate_json
 
+      def components
+        response_metadata&.fetch("response_components", nil)
+      end
+
       def snapshot
         Data.json_value(
           id: case_id, name: name, question: question, expected_answer: expected_answer,
           expected_actions: expected_actions, minimum_scores: minimum_scores,
           metadata: metadata, output: output, status: status, duration_ms: duration_ms,
           input_tokens: input_tokens, output_tokens: output_tokens, cost: cost, actions: actions,
-          response_metadata: response_metadata, error: error_details,
+          components: components, response_metadata: response_metadata&.except("response_components"), error: error_details,
           metrics: metric_results.map(&:snapshot)
         )
       end

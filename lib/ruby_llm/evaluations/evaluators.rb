@@ -36,6 +36,26 @@ module RubyLLM
         end
       end
 
+      def response_components(protocol:, version: nil, &check)
+        ResponseComponents.validate_label!(protocol, "component protocol")
+        ResponseComponents.validate_label!(version, "component version") unless version.nil?
+        raise ArgumentError, "provide a response component check block" unless check
+        lambda do |_output, context|
+          components = context.response.components
+          if components.nil?
+            next Assessment.new(score: false, reason: "Response component instrumentation missing")
+          end
+          matching = components.select { |item| item["protocol"] == protocol }
+          if matching.empty?
+            next Assessment.new(score: false, reason: "No #{protocol} response components")
+          end
+          if version && matching.any? { |item| item["version"] != version }
+            next Assessment.new(score: false, reason: "Unexpected #{protocol} protocol version")
+          end
+          check.call(matching, context)
+        end
+      end
+
       def semantic_accuracy
         JudgeMetric.new(reference: true, rubric: <<~RUBRIC)
           Score factual semantic agreement with the expected reference, not lexical overlap.

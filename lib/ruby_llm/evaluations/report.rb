@@ -223,6 +223,7 @@ module RubyLLM
             "Minimum passing scores" => item["minimum_scores"],
             "Expected actions (ordered)" => item["expected_actions"] || "Unavailable — expected actions not specified",
             "Observed actions (ordered)" => item["actions"] || "Unavailable — action instrumentation missing",
+            "Response components (ordered)" => item["components"] || "Unavailable — response component instrumentation missing",
             "Response metadata" => item["response_metadata"].nil? ? "Unavailable — response metadata not reported" : item["response_metadata"],
             "Metadata" => item["metadata"], "Duration (ms)" => item["duration_ms"],
             "Input tokens" => item["input_tokens"], "Output tokens" => item["output_tokens"],

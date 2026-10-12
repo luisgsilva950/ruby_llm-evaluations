@@ -26,8 +26,8 @@ class CLITest < Minitest::Test
     @sandbox.close
   end
 
-  def cli(*arguments, quality: "0.9")
-    Open3.capture3({ "QUALITY" => quality }, RbConfig.ruby, "-I", File.expand_path("../../lib", __dir__),
+  def cli(*arguments, quality: "0.9", revision: nil)
+    Open3.capture3({ "QUALITY" => quality, "AGENT_REVISION" => revision }, RbConfig.ruby, "-I", File.expand_path("../../lib", __dir__),
                   File.expand_path("../../exe/ruby_llm-agent-evaluations", __dir__), *arguments, "--database-url", @database)
   end
 
@@ -78,6 +78,38 @@ class CLITest < Minitest::Test
   ensure
     @database = original
     empty&.close
+  end
+
+  def test_plain_a2ui_responses_score_independently_without_fabricating_tool_evidence
+    spec = File.expand_path("../../examples/a2ui_eval.rb", __dir__)
+    output, error, status = cli("run", spec, "--format", "json")
+    assert status.success?, error
+    baseline = JSON.parse(output)
+    baseline_case = baseline.fetch("cases").first
+    assert_equal "passed", baseline_case.fetch("status")
+    component = baseline_case.fetch("components").first
+    refute component.key?("tool_name")
+    refute component.key?("arguments")
+    assert_equal baseline_case.fetch("metadata").fetch("expected_ui_messages"),
+      component.fetch("payload").lines.map { |line| JSON.parse(line) }
+
+    %w[regressed missing_ui].each do |revision|
+      output, error, status = cli("run", spec, "--format", "json", "--fail-on-regression", revision: revision)
+      assert_equal 1, status.exitstatus, error
+      current = JSON.parse(output)
+      current_case = current.fetch("cases").first
+      metrics = current_case.fetch("metrics").to_h { |metric| [metric.fetch("name"), metric.fetch("passed")] }
+      assert_equal({ "text" => true, "a2ui" => false }, metrics)
+      assert_equal "failed", current_case.fetch("status")
+      if revision == "regressed"
+        assert current.fetch("comparison").fetch("regressed")
+        reopened, error, status = cli("report", current.fetch("id"), "--format", "json")
+        assert status.success?, error
+        assert_equal current_case.fetch("components"), JSON.parse(reopened).fetch("cases").first.fetch("components")
+      else
+        assert_empty current_case.fetch("components")
+      end
+    end
   end
 
   def test_explicit_future_baseline_does_not_execute_agent

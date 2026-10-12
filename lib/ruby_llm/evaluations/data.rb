@@ -36,6 +36,10 @@ module RubyLLM
         end
       end
 
+      def snapshot(value)
+        JSON.parse(JSON.generate(json_value(value)))
+      end
+
       def canonical(value)
         case value
         when Hash

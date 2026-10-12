@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Rewrite the README around installed-gem onboarding, concise evaluation contracts, and linked examples; separate contributor instructions from the consumer flow.
+- Add protocol-labelled response components, plain-Ruby tool declarations, a shared `Response.capture` flow, independent component evaluators, and durable evidence in reports/dashboard. Include an offline A2UI 0.8 example and SQLite/PostgreSQL/MySQL regression coverage; no new tables, migrations, or runtime dependencies.
+- Separate component schema validation, scoped capture, and tool interception into focused objects/files. Make response assembly explicit and keep expected A2UI messages in question data; public tool declarations and evaluator APIs remain unchanged.
+- Make the A2UI example a plain Ruby renderer returning explicit response components, with no RubyLLM dependency or fabricated tool provenance. Document tool capture separately for actual tools.
 
 ## 0.2.2
 
