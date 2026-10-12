@@ -103,11 +103,11 @@ Built-ins include `exact_match`, `contains`, `matches`, and `valid_json`. Action
 Score UI/protocol payloads separately from text. Add this to an **existing tool class**:
 
 ```ruby
-include RubyLLM::Evaluations::ResponseComponentTool
-response_component protocol: "a2ui", version: "0.8"
+prepend RubyLLM::Evaluations::ResponseComponentTool
+def response_component = { protocol: "a2ui", version: "0.8" }
 ```
 
-Marked tools keep their original return values and callbacks. During `Evaluations.run` or the RubyLLM chat adapter, each result is captured in order with its protocol, declared version, tool name, arguments, and payload. Evaluators read `context.response.components`; history and reports retain the evidence without new tables or migrations.
+Marked tools keep their original return values and callbacks. During `Evaluations.run` or the RubyLLM chat adapter, results are captured in call order with protocol, declared version, tool name, arguments, and payload; explicit final-response components follow them. Evaluators read `context.response.components`; history and reports retain the evidence without new tables or migrations. Outside a run, use `Response.capture { agent.call(question) }`.
 
 ```ruby
 # Inside a suite; expected_ui_messages in question metadata is parsed JSON.

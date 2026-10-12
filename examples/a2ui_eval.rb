@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
-# Offline consumer example, not proof of model reasoning. Requires optional ruby_llm.
+# Offline consumer example, not proof of model reasoning. Requires ruby_llm 1.x (1.14.1+).
 require "ruby_llm"
 require "ruby_llm/evaluations"
 
 class RenderReturnPolicy < RubyLLM::Tool
-  include RubyLLM::Evaluations::ResponseComponentTool
-  response_component protocol: "a2ui", version: "0.8"
+  prepend RubyLLM::Evaluations::ResponseComponentTool
+  def response_component = { protocol: "a2ui", version: "0.8" }
   description "Render a return policy surface"
   param :days, type: :integer, desc: "Return window in days"
 

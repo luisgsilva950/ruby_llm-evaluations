@@ -28,61 +28,40 @@ module RubyLLM
         value
       end
 
-      # Thread#[] is fiber-local: nested/concurrent synchronous chats do not share evidence.
-      def capture
-        previous = Thread.current[:ruby_llm_evaluations_components]
+      def current = Thread.current[:ruby_llm_evaluations_components]
+
+      # Fiber-local scope; always restore the enclosing evaluation after errors.
+      def collect
+        previous = current
         components = []
         Thread.current[:ruby_llm_evaluations_components] = components
-        [yield, components]
+        yield components
       ensure
         Thread.current[:ruby_llm_evaluations_components] = previous
       end
 
-      def record(tool, arguments, result)
-        components = Thread.current[:ruby_llm_evaluations_components]
-        return unless components
-        definition = tool.class.response_component_definition
-        raise ArgumentError, "declare response_component protocol: on #{tool.class}" unless definition
+      def from_tool(tool, arguments, result)
         payload = if defined?(::RubyLLM::Tool::Halt) && result.is_a?(::RubyLLM::Tool::Halt)
                     result.content
                   else
                     result
                   end
-        component = definition.merge("payload" => payload, "tool_name" => tool.name, "arguments" => arguments || {})
-        # Snapshot before later tool calls can mutate a reused result object.
-        components << JSON.parse(JSON.generate(normalize([component]).first))
+        component = tool.response_component.merge(payload: payload, tool_name: tool.name, arguments: arguments)
+        Data.snapshot(normalize([component]).first)
       end
     end
 
-    # Opt in on an application's tool; preserve its original return value and callbacks.
+    # Prepend to a tool and declare its protocol with an ordinary response_component method.
     module ResponseComponentTool
-      def self.included(base)
-        base.extend(ClassMethods)
-        base.prepend(Capture)
-      end
+      def call(arguments)
+        components = ResponseComponents.current
+        return super unless components
 
-      module ClassMethods
-        def response_component(protocol:, version: nil)
-          definition = { "protocol" => ResponseComponents.label(protocol, "component protocol").dup.freeze }
-          definition["version"] = ResponseComponents.label(version, "component version").dup.freeze unless version.nil?
-          @response_component_definition = definition.freeze
-        end
-
-        def response_component_definition
-          return @response_component_definition if defined?(@response_component_definition)
-          superclass.response_component_definition if superclass.respond_to?(:response_component_definition)
-        end
+        evidence_arguments = Data.snapshot(arguments || {})
+        result = super
+        components << ResponseComponents.from_tool(self, evidence_arguments, result)
+        result
       end
-
-      module Capture
-        def call(arguments)
-          evidence_arguments = JSON.parse(JSON.generate(Data.json_value(arguments || {}))) if Thread.current[:ruby_llm_evaluations_components]
-          result = super
-          ResponseComponents.record(self, evidence_arguments, result)
-          result
-        end
-      end
-      private_constant :Capture, :ClassMethods
     end
   end
 end

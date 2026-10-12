@@ -10,8 +10,8 @@ class ResponseComponentsTest < Minitest::Test
   E = RubyLLM::Evaluations
 
   class RenderPolicy < RubyLLM::Tool
-    include E::ResponseComponentTool
-    response_component protocol: "a2ui", version: "0.8"
+    prepend E::ResponseComponentTool
+    def response_component = { protocol: "a2ui", version: "0.8" }
     description "Render the return policy"
     param :product, desc: "Product name"
     def name = "return_policy"
@@ -28,8 +28,8 @@ class ResponseComponentsTest < Minitest::Test
   end
 
   class MutableTool < RubyLLM::Tool
-    include E::ResponseComponentTool
-    response_component protocol: "card"
+    prepend E::ResponseComponentTool
+    def response_component = { protocol: "card" }
     attr_accessor :payload
     def execute(label:)
       label.replace("mutated argument")
@@ -175,25 +175,56 @@ class ResponseComponentsTest < Minitest::Test
 
   def test_nested_fibers_and_exceptions_do_not_leak_tool_results
     tool = RenderPolicy.new
-    outer = E::ResponseComponents.capture do
+    outer = E::Response.capture do
       tool.call(product: "outer")
       assert_raises(RuntimeError) do
-        E::ResponseComponents.capture { tool.call(product: "discarded"); raise "agent failed" }
+        E::Response.capture { tool.call(product: "discarded"); raise "agent failed" }
       end
-      inner = Fiber.new { E::ResponseComponents.capture { tool.call(product: "fiber") } }.resume
-      assert_equal ["fiber"], inner.last.map { |item| item.fetch("arguments").fetch("product") }
+      inner = Fiber.new { E::Response.capture { tool.call(product: "fiber") } }.resume
+      assert_equal ["fiber"], inner.components.map { |item| item.fetch("arguments").fetch("product") }
       tool.call(product: "after")
     end
-    assert_equal %w[outer after], outer.last.map { |item| item.fetch("arguments").fetch("product") }
-    fresh = E::ResponseComponents.capture { tool.call(product: "fresh") }
-    assert_equal ["fresh"], fresh.last.map { |item| item.fetch("arguments").fetch("product") }
+    assert_equal %w[outer after], outer.components.map { |item| item.fetch("arguments").fetch("product") }
+    fresh = E::Response.capture { tool.call(product: "fresh") }
+    assert_equal ["fresh"], fresh.components.map { |item| item.fetch("arguments").fetch("product") }
   end
 
-  def test_inherited_markers_preserve_halt_behavior
-    result, components = E::ResponseComponents.capture { HaltPolicy.new.call(product: "book") }
-    assert_instance_of RubyLLM::Tool::Halt, result
-    assert_equal RenderPolicy.new.execute(product: "book"), result.content
-    assert_equal result.content, components.first.fetch("payload")
-    assert_equal "0.8", components.first.fetch("version")
+  def test_inherited_component_method_preserves_halt_behavior
+    halted = nil
+    response = E::Response.capture { halted = HaltPolicy.new.call(product: "book") }
+    assert_instance_of RubyLLM::Tool::Halt, halted
+    assert_equal RenderPolicy.new.execute(product: "book"), halted.content
+    assert_equal halted.content, response.output
+    assert_equal halted.content, response.components.first.fetch("payload")
+    assert_equal "0.8", response.components.first.fetch("version")
+  end
+
+  def test_capture_keeps_tool_order_final_components_and_caller_owned_response_evidence
+    tool = RenderPolicy.new
+    original = E::Response.new(output: "done", input_tokens: 12, output_tokens: 3, cost: 0.002,
+      metadata: { model: "local" }, actions: [{ name: "save", arguments: { id: 42 } }],
+      components: [{ protocol: "card", payload: { complete: true } }])
+    agent = ->(_) do
+      tool.call(product: "first")
+      tool.call(product: "second")
+      original
+    end
+    suite = E.define("Mixed components", agent: agent, agent_name: "Renderer") do
+      evaluate :ui, using: E::Evaluators.response_components(protocol: "a2ui", version: "0.8") { |components, _|
+        components.map { |item| item.fetch("arguments").fetch("product") } == %w[first second]
+      }
+      evaluate :card, using: E::Evaluators.response_components(protocol: "card") { |components, _| components == original.components }
+      question "Render", expected_answer: "done"
+    end
+    response = E::Run.with_results.find(E.run(suite).id).case_results.first
+    assert_equal "passed", response.status
+    assert_equal ["first", "second"], response.components.first(2).map { |item| item.fetch("arguments").fetch("product") }
+    assert_equal original.components, response.components.last(1)
+    assert_equal [{ "protocol" => "card", "payload" => { "complete" => true } }], original.components
+    assert_equal "done", response.output
+    assert_equal [12, 3, 0.002], [response.input_tokens, response.output_tokens, response.cost]
+    assert_equal original.metadata, response.snapshot.fetch("response_metadata")
+    assert_equal original.actions, response.actions
+    assert_same original, E::Response.capture { original }
   end
 end

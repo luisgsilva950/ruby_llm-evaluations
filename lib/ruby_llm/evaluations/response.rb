@@ -22,6 +22,17 @@ module RubyLLM
         @components = components.nil? ? nil : ResponseComponents.normalize(components)
       end
 
+      def self.capture
+        ResponseComponents.collect do |components|
+          response = normalize(yield)
+          next response if components.empty?
+
+          new(output: response.output, metadata: response.metadata, actions: response.actions,
+              input_tokens: response.input_tokens, output_tokens: response.output_tokens, cost: response.cost,
+              components: components + (response.components || []))
+        end
+      end
+
       def self.normalize(value)
         return value if value.is_a?(self)
         return new(output: value) unless value.respond_to?(:content)

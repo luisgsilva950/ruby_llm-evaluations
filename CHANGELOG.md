@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Rewrite the README around installed-gem onboarding, concise evaluation contracts, and linked examples; separate contributor instructions from the consumer flow.
-- Add protocol-labelled response components, opt-in tool capture, independent component evaluators, and durable component evidence in reports/dashboard. Include an offline A2UI 0.8 example and SQLite/PostgreSQL/MySQL regression coverage; no new tables, migrations, or runtime dependencies.
+- Add protocol-labelled response components, plain-Ruby tool declarations, a shared `Response.capture` flow, independent component evaluators, and durable evidence in reports/dashboard. Include an offline A2UI 0.8 example and SQLite/PostgreSQL/MySQL regression coverage; no new tables, migrations, or runtime dependencies.
 
 ## 0.2.2
 
