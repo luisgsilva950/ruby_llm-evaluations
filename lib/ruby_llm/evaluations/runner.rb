@@ -41,8 +41,10 @@ module RubyLLM
           "output_tokens" => nil, "cost" => nil, "actions" => nil, "error" => nil, "metrics" => []
         )
         started = clock
+        replay = ApiReplay.new(question.api_interactions) if question.api_interactions
         begin
-          response = Response.normalize(suite.agent.call(mutable_copy(question.question)))
+          invoke = -> { suite.agent.call(mutable_copy(question.question)) }
+          response = Response.normalize(replay ? replay.call(&invoke) : invoke.call)
           result.merge!("output" => Data.json_value(response.output),
                         "input_tokens" => response.input_tokens, "output_tokens" => response.output_tokens,
                         "cost" => response.cost, "response_metadata" => response.metadata,
@@ -51,6 +53,10 @@ module RubyLLM
           result["error"] = Data.error(exception)
           result["duration_ms"] = milliseconds(started)
           return result
+        ensure
+          if replay
+            result["response_metadata"] = (result["response_metadata"] || {}).merge("api_replay" => replay.evidence)
+          end
         end
         result["duration_ms"] = milliseconds(started)
         context = Context.new(question, response, judge: suite.judge)

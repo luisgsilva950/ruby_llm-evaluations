@@ -34,6 +34,68 @@ Without explicit suite-level evaluate definitions, omitted minimum_scores defaul
 
 Questions accept optional name:, id:, and expected_actions:. Names default to question text (or a generated label for structured questions); IDs default to names and must be unique. Question/reference/metadata/output data must be JSON-portable. Symbol keys/values retain Ruby distinctions in fingerprints and agent calls; persisted JSON normalizes them. Unsupported objects fail explicitly. Specs execute trusted Ruby, not sandboxed code, and must return a Suite; define returns one.
 
+## Strict API replay
+
+Declare fixtures inside a question block to exercise real HTTP clients without contacting the API. This complete spec needs the ordinary PostgreSQL setup below, but no provider credentials:
+
+~~~ruby
+require "net/http"
+require "json"
+require "ruby_llm/evaluations"
+
+E = RubyLLM::Evaluations
+shipping_agent = ->(_question) do
+  response = Net::HTTP.get_response(URI("https://shipping.example/orders?id=42"))
+  JSON.parse(response.body).fetch("status")
+end
+
+E.define("Shipping API", agent: shipping_agent, agent_name: "ShippingAgent") do
+  evaluate :exact, using: E::Evaluators.exact_match
+  question "Track order 42", expected_answer: "ready" do
+    api_interactions do
+      expect_request(method: :get, url: "https://shipping.example/orders",
+                     query: { id: "42" })
+        .respond_with(status: 200, headers: { "Content-Type" => "application/json" },
+                      json: { status: "ready" })
+    end
+  end
+end
+~~~
+
+Save it as `shipping_eval.rb`, then run `ruby_llm-evaluations run shipping_eval.rb` after migrations. [examples/api_replay_eval.rb](examples/api_replay_eval.rb) also demonstrates file responses. Replay supports Net::HTTP and Faraday through standard WebMock-supported transports; it does not replace your agent or HTTP client. Only the agent call is wrapped, not evaluators or judges. Existing mock registrations, network configuration, and enabled adapters are restored after each case, including failures.
+
+Run the bundled two-source example with `bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/api_replay_eval.rb`. Then run `AGENT_REVISION=regressed bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/api_replay_eval.rb --fail-on-regression` to send deliberately wrong order arguments; strict replay records the mismatch and the regression gate exits nonzero.
+
+Each declaration must be consumed **once, in declared order**. Declare a repeated call twice. Unexpected requests, parameter mismatches, exhausted fixtures, and missing calls produce an agent error even if the agent rescues the request exception or returns the expected answer. Query order is insignificant; repeated values and their multiplicity are preserved. `expect_request(json: { count: 1, enabled: false }, headers: { "X-Region" => "eu" })` asserts typed JSON and only declared headers (header names are case-insensitive). String `"1"` is not number `1`, and `null` is not `false`. Omitting request `json:` requires an empty body.
+
+`respond_with` requires exactly one source: inline `json:` (including `json: nil` for JSON null), or `body_file: "fixtures/order.json"`. Files resolve relative to the spec file where the question was declared, not the process working directory. Missing files, invalid JSON, and invalid UTF-8 fail before agent execution. Exact file bytes, including whitespace and final newline, are snapshotted and returned unchanged. Optional `status:` defaults to 200; `headers:` defaults to an empty map.
+
+Absolute `body_file:` paths are also accepted; prefer spec-relative paths for portable, shareable fixtures.
+
+Replay is strict/offline by default: undeclared network requests fail. For live model requests made by the agent itself, explicitly use `api_interactions(allow_hosts: ["api.openai.com"]) do ... end`. Allowances match exact hosts, not suffixes or wildcards, and may incur provider charges. An allowed host never bypasses a declared fixture request. Judge calls need no replay allowance because judging runs outside replay. There is no recording mode.
+
+PostgreSQL case results persist `response_metadata["api_replay"]` on success and failure: expected interactions, observed match statuses, readable mismatch differences, and missing requests. Authentication/credential fields are redacted from replay evidence. Still use synthetic fixtures: never commit credentials or sensitive payloads, and protect persisted prompts, answers, and reports.
+
+Replay evidence uses the existing response-metadata display in reports and the dashboard; JSON reports include the persisted `response_metadata.api_replay` payload. No separate evidence store or migration is required.
+
+Request assertions, response status/headers, allowed hosts, and response-byte hashes participate in suite fingerprints. Changing fixture bytes (even JSON whitespace) creates an incompatible baseline, not a regression against the old fixture. Existing definitions retain snapshotted bytes; reload/redefine the spec to adopt file changes. Suites without replay keep their existing fingerprints.
+
+## Large tool-result evaluation
+
+[examples/context_bloat_eval.rb](examples/context_bloat_eval.rb) replays a roughly 500 KB JSON API response with the relevant current policy after a long history. It evaluates three independent requirements: the correct answer, the expected tool name/arguments, and a maximum 4,096-byte model-facing tool result. The normal tool extracts the relevant facts; `AGENT_REVISION=regressed` sends the entire response. A correct answer does not excuse exceeding the declared tool-result budget. Actual API and tool-result byte counts are saved in response metadata.
+
+This is a byte budget for tool output, not a tokenizer or a claim that the complete prompt fits every model window. The local integration test exercises actual RubyLLM HTTP/tool transport with scripted model responses; it does not prove model reasoning. Use the opt-in provider example to evaluate real model behavior. It requires your credentials and incurs charges; the external policy API remains replayed. A real provider context-limit failure is recorded as an agent error, never hidden.
+
+~~~sh
+# Requires DATABASE_URL, migrations, and your OPENAI_API_KEY.
+RUN_CONTEXT_BLOAT_EVAL=1 OPENAI_MODEL=gpt-4.1-mini bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/context_bloat_eval.rb
+
+# Intentionally expose oversized tool output; expect a failure or provider limit error.
+RUN_CONTEXT_BLOAT_EVAL=1 AGENT_REVISION=regressed OPENAI_MODEL=gpt-4.1-mini bundle exec ruby -Ilib exe/ruby_llm-evaluations run examples/context_bloat_eval.rb --fail-on-regression
+~~~
+
+WebMock interception is process-global. Replay cases are serialized and restore caller state, but run evaluations in a dedicated process rather than alongside unrelated application HTTP traffic. Custom transports outside WebMock support are not intercepted.
+
 ## Optional judge agent in the suite constructor
 
 Use a class inheriting from RubyLLM::Agent (RubyLLM 1.14.1+). The evaluation suite creates a fresh instance for each assessment and calls its ask method, so judge conversations do not leak between metrics or questions:

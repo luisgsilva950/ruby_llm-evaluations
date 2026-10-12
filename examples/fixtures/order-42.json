@@ -1,0 +1,8 @@
+{
+  "id": "42",
+  "status": "in_transit",
+  "events": [
+    { "type": "dispatched", "location": "Lisbon" },
+    { "type": "in_transit", "location": "Porto" }
+  ]
+}

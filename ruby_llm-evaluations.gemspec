@@ -18,4 +18,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency "activerecord", ">= 7.1", "< 9"
   spec.add_dependency "pg", ">= 1.5", "< 2"
   spec.add_dependency "webrick", "~> 1.8"
+  spec.add_dependency "webmock", "~> 3.26"
 end

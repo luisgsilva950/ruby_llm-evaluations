@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add strict question-scoped API replay for Net::HTTP and Faraday: ordered one-use request assertions, inline JSON or exact-byte JSON files, explicit live-host allowances, and persisted redacted mismatch evidence. Fixture definitions and response-byte hashes participate in compatible-baseline fingerprints; suites without replay keep their fingerprints.
+- Add a large-response evaluation with independent answer, action-argument, and model-facing tool-result budget checks, a bounded/raw-output regression, and an opt-in OpenAI example.
 - Rename the question keyword and evaluation context field from `criteria` to `minimum_scores`, with no compatibility alias. Update specifications and custom evaluators to use the new name. Scores use absolute inclusive per-metric minimums on every run, including the first; previous-run regression comparison remains separate. Equivalent definitions retain their historical fingerprints, while changing metric names or thresholds changes the fingerprint.
 - Keep Ruby 3.2 CI dependencies compatible by constraining development RBS below 4; use the Node 24 checkout action.
 - Preserve existing PostgreSQL history while migrating stored minimum-score names. Rails hosts upgrade with `bin/rails ruby_llm_evaluations:install:migrations` followed by `bin/rails db:migrate`; standalone users run `ruby_llm-evaluations db:migrate`.

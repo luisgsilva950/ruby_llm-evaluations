@@ -5,14 +5,17 @@ require "digest"
 module RubyLLM
   module Evaluations
     Question = Struct.new(:id, :name, :question, :expected_answer, :expected_actions, :minimum_scores, :metadata,
-                          :evaluators, keyword_init: true) do
+                          :evaluators, :api_interactions, keyword_init: true) do
       def to_h
-        super.reject { |key, _value| key == :evaluators }
+        super.reject { |key, _value| %i[evaluators api_interactions].include?(key) }
       end
     end
     Evaluator = Struct.new(:name, :callable, :threshold, keyword_init: true)
 
     class Suite
+      SOURCE_DIRECTORY = Dir.pwd.freeze
+      private_constant :SOURCE_DIRECTORY
+
       attr_reader :name, :agent, :agent_name, :version, :cases, :evaluators, :judge
 
       def initialize(name, agent:, judge: nil, agent_name: nil, version: "1")
@@ -29,7 +32,7 @@ module RubyLLM
         @evaluators = []
       end
 
-      def question(value, expected_answer: nil, minimum_scores: nil, metadata: {}, name: nil, id: nil, expected_actions: nil)
+      def question(value, expected_answer: nil, minimum_scores: nil, metadata: {}, name: nil, id: nil, expected_actions: nil, &block)
         name = nonempty(name || (value.is_a?(String) ? value : "Question #{cases.size + 1}"), "question name")
         id = nonempty(id || name, "question id")
         raise DefinitionError, "duplicate question id: #{id}" if cases.any? { |item| item.id == id }
@@ -42,9 +45,17 @@ module RubyLLM
             raise DefinitionError, "expected actions must specify an action group"
           end
         end
+        if block
+          source = block.source_location.first
+          # Ruby main scripts can retain relative source locations after Dir.chdir.
+          source = File.expand_path(source, File.file?(source) ? Dir.pwd : SOURCE_DIRECTORY)
+          replay = ApiReplay::Definition.new(base_dir: File.dirname(source))
+          replay.instance_eval(&block)
+          replay.validate!
+        end
         cases << Question.new(id: id, name: name, question: immutable_copy(value),
                               expected_answer: immutable_copy(expected_answer),
-                              expected_actions: immutable_copy(expected_actions),
+                              expected_actions: immutable_copy(expected_actions), api_interactions: replay,
                               minimum_scores: minimum_scores, metadata: immutable_copy(metadata)).freeze
       end
 
@@ -72,7 +83,8 @@ module RubyLLM
             next if judge.nil? && callable.is_a?(JudgeMetric)
             Evaluator.new(name: metric_name, callable: callable, threshold: threshold).freeze
           end.freeze
-          Question.new(**item.to_h, minimum_scores: immutable_copy(minimum_scores), evaluators: definitions).freeze
+          Question.new(**item.to_h, minimum_scores: immutable_copy(minimum_scores),
+                       api_interactions: item.api_interactions, evaluators: definitions).freeze
         end
         self
       end
@@ -83,6 +95,7 @@ module RubyLLM
                        "cases" => cases.map do |item|
                          # Persistent fingerprint labels are stable across public API renames.
                          data = item.to_h.transform_keys { |key| key == :minimum_scores ? :criteria : key }
+                         data = data.merge(api_interactions: item.api_interactions.to_h) if item.api_interactions
                          skipped = item.minimum_scores.keys - item.evaluators.map(&:name)
                          data = data.merge(skipped_metrics: skipped) unless skipped.empty?
                          definition_value(data)
