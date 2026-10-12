@@ -20,7 +20,7 @@ Add to your `Gemfile`:
 
 ```ruby
 source "https://rubygems.org"
-gem "ruby_llm-agent-evaluations", "~> 0.2.2", require: "ruby_llm/evaluations"
+gem "ruby_llm-agent-evaluations", "~> 0.3.0", require: "ruby_llm/evaluations"
 gem "sqlite3" # Or your application's pg/mysql2 driver.
 ```
 
@@ -98,7 +98,7 @@ Built-ins include `exact_match`, `contains`, `matches`, and `valid_json`. Action
 
 **Passing is not the same as avoiding regression.** A drop from 0.98 to 0.92 passes a 0.9 minimum but regresses beyond a 0.02 tolerance. Baselines match earlier suite/agent/definition fingerprints. Questions, references/actions, minimums, metadata, fixture bytes, and suite version affect compatibility. **Bump suite `version` when changing scoring code, rubrics, or judge configuration**; callable source is not hashed.
 
-### Structured responses (unreleased)
+### Structured responses
 
 Score UI/protocol payloads separately from text. **UI is response data, not a tool call.** Return your renderer's payload explicitly; no RubyLLM tool class or concern is needed:
 
@@ -141,7 +141,7 @@ end
 
 Marked tools keep their return values and callbacks. `Evaluations.run` and the RubyLLM chat adapter capture results in call order with protocol, declared version, tool name, arguments, and payload; explicit final-response components follow them. Outside a run, use `Response.capture { agent.call(question) }`. Tool capture is synchronous and fiber-local; worker-thread/streaming agents assemble components explicitly. Plain renderer output has no fabricated tool provenance.
 
-See the [complete offline A2UI 0.8 example](examples/a2ui_eval.rb), which uses a plain renderer and needs no RubyLLM dependency: run normally, then with `AGENT_REVISION=regressed` or `AGENT_REVISION=missing_ui`. Correct text still passes; incorrect/missing UI fails. This feature is on the review branch, not the published 0.2.2 gem.
+See the [complete offline A2UI 0.8 example](examples/a2ui_eval.rb), which uses a plain renderer and needs no RubyLLM dependency: run normally, then with `AGENT_REVISION=regressed` or `AGENT_REVISION=missing_ui`. Correct text still passes; incorrect/missing UI fails.
 
 ## API replay
 
