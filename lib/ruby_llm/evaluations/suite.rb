@@ -81,6 +81,7 @@ module RubyLLM
             custom = evaluators.find { |definition| definition.name == metric_name }
             callable = custom ? custom.callable : standard_metric(metric_name)
             next if judge.nil? && callable.is_a?(JudgeMetric)
+            callable.validate_expectations!(item.metadata) if callable.is_a?(A2UI::Evaluator)
             Evaluator.new(name: metric_name, callable: callable, threshold: threshold).freeze
           end.freeze
           Question.new(**item.to_h, minimum_scores: immutable_copy(minimum_scores),
@@ -98,6 +99,10 @@ module RubyLLM
                          data = data.merge(api_interactions: item.api_interactions.to_h) if item.api_interactions
                          skipped = item.minimum_scores.keys - item.evaluators.map(&:name)
                          data = data.merge(skipped_metrics: skipped) unless skipped.empty?
+                         ui = item.evaluators.filter_map do |evaluator|
+                           [evaluator.name, evaluator.callable.definition] if evaluator.callable.is_a?(A2UI::Evaluator)
+                         end.to_h
+                         data = data.merge(a2ui_evaluators: ui) unless ui.empty?
                          definition_value(data)
                        end }
         Digest::SHA256.hexdigest(JSON.generate(Data.canonical(definition)))
@@ -111,6 +116,8 @@ module RubyLLM
           Evaluators.public_send(name)
         when "action_group"
           Evaluators.action_group
+        when "a2ui"
+          @a2ui_evaluator ||= Evaluators.a2ui
         else
           raise DefinitionError, "unknown metric: #{name}; register it with evaluate"
         end

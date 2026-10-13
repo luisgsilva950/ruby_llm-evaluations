@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add a native A2UI 0.8 metric: official catalog-backed JSON Schema validation and question-level assertions for surface, root, catalog, component type, and nested props. Correct text cannot conceal invalid UI.
+- Support custom catalogs as Ruby Hashes or local JSON files, immutable catalog snapshots and compatible-baseline fingerprints, and offline embedded schema references. Add `json_schemer` and bundle pinned Apache-2.0 A2UI schemas.
+- Validate ordered/incremental messages, deleted surfaces, component references, and earlier invalid evidence; persist actionable diagnostics through existing history and reports. Replace the example’s manual JSONL comparison and verify native flows on SQLite, PostgreSQL, and MySQL. No new tables or migrations.
+
 ## 0.3.0 — 2026-10-12
 
 - Evaluate structured response components independently from text, with protocol/version checks and application-defined validators. Preserve component evidence in history, exports, and the dashboard using existing tables.

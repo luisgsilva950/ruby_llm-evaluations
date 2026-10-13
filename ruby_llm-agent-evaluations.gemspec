@@ -16,6 +16,7 @@ Gem::Specification.new do |spec|
   spec.executables = ["ruby_llm-agent-evaluations"]
   spec.require_paths = ["lib"]
   spec.add_dependency "activerecord", ">= 7.1", "< 9"
+  spec.add_dependency "json_schemer", "~> 2.0"
   spec.add_dependency "webrick", "~> 1.8"
   spec.add_dependency "webmock", "~> 3.26"
 end

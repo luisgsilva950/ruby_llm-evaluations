@@ -90,8 +90,10 @@ class CLITest < Minitest::Test
     component = baseline_case.fetch("components").first
     refute component.key?("tool_name")
     refute component.key?("arguments")
-    assert_equal baseline_case.fetch("metadata").fetch("expected_ui_messages"),
-      component.fetch("payload").lines.map { |line| JSON.parse(line) }
+    rendered = component.fetch("payload").lines.map { |line| JSON.parse(line) }
+    assert_equal "Text", rendered.first.fetch("surfaceUpdate").fetch("components").first.fetch("component").keys.first
+    assert_equal "Returns within 30 days",
+      rendered.first.fetch("surfaceUpdate").fetch("components").first.fetch("component").fetch("Text").fetch("text").fetch("literalString")
 
     %w[regressed missing_ui].each do |revision|
       output, error, status = cli("run", spec, "--format", "json", "--fail-on-regression", revision: revision)
