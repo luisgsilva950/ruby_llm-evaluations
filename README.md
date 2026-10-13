@@ -20,7 +20,7 @@ Add to your `Gemfile`:
 
 ```ruby
 source "https://rubygems.org"
-gem "ruby_llm-agent-evaluations", "~> 0.3.0", require: "ruby_llm/evaluations"
+gem "ruby_llm-agent-evaluations", "~> 0.3.1", require: "ruby_llm/evaluations"
 gem "sqlite3" # Or your application's pg/mysql2 driver.
 ```
 
@@ -112,7 +112,7 @@ RubyLLM::Evaluations::Response.new(
 
 Evaluators read `context.response.components`; history and reports retain the evidence without new tables or migrations.
 
-**Native A2UI validation — unreleased on `feature/a2ui-assertions`.** No JSONL parser or custom assertion block is needed:
+**Native A2UI validation.** No JSONL parser or custom assertion block is needed:
 
 ```ruby
 # Inside your suite:

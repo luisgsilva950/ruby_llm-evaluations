@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-10-13
 
 - Add a native A2UI 0.8 metric: official catalog-backed JSON Schema validation and question-level assertions for surface, root, catalog, component type, and nested props. Correct text cannot conceal invalid UI.
 - Support custom catalogs as Ruby Hashes or local JSON files, immutable catalog snapshots and compatible-baseline fingerprints, and offline embedded schema references. Add `json_schemer` and bundle pinned Apache-2.0 A2UI schemas.
