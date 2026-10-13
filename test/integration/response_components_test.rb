@@ -50,14 +50,7 @@ class ResponseComponentsTest < Minitest::Test
   end
 
   def ui_check
-    E::Evaluators.response_components(protocol: "a2ui", version: "0.8") do |components, context|
-      components.size == 1 && components.first.fetch("payload").lines.map { |line| JSON.parse(line) } == [
-        { "surfaceUpdate" => { "surfaceId" => "policy", "components" => [
-          { "id" => "root", "component" => { "Text" => { "text" => { "literalString" => context.metadata.fetch(:label) } } } }
-        ] } },
-        { "beginRendering" => { "surfaceId" => "policy", "root" => "root" } }
-      ]
-    end
+    E::Evaluators.a2ui
   end
 
   def test_real_ruby_llm_tool_results_callbacks_case_isolation_and_durable_regression
@@ -84,7 +77,10 @@ class ResponseComponentsTest < Minitest::Test
       evaluate :text, using: E::Evaluators.exact_match
       evaluate :ui, using: check
       %w[first second].each do |input|
-        question input, expected_answer: LocalLLMServer::ANSWER, metadata: { label: "book: 30 days" }
+        question input, expected_answer: LocalLLMServer::ANSWER, metadata: { a2ui: { surfaces: { policy: {
+          catalog: :standard, root: "root",
+          components: { root: { type: "Text", props: { text: { literalString: "book: 30 days" } } } }
+        } } } }
       end
     end
     baseline = E.run(definition)

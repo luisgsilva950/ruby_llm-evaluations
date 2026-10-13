@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/a2ui-project/a2ui",
+  "commit": "3eafe0bafae3b5d33f7647e5d089bda3e76abf8d",
+  "directory": "specification/v0_8/json",
+  "files": ["server_to_client.json", "standard_catalog_definition.json"],
+  "license": "Apache-2.0",
+  "license_file": "LICENSE",
+  "standard_catalog_id": "https://a2ui.org/specification/v0_8/standard_catalog_definition.json",
+  "source_files_modified": false
+}

@@ -112,22 +112,38 @@ RubyLLM::Evaluations::Response.new(
 
 Evaluators read `context.response.components`; history and reports retain the evidence without new tables or migrations.
 
-```ruby
-# Build the check separately; expected_ui_messages is parsed JSON in question metadata.
-ui_check = RubyLLM::Evaluations::Evaluators.response_components(protocol: "a2ui", version: "0.8") do |components, context|
-  actual_messages = components.flat_map do |component|
-    component.fetch("payload").lines.map { |line| JSON.parse(line) }
-  end
-  actual_messages == context.metadata.fetch(:expected_ui_messages)
-end
+**Native A2UI validation — unreleased on `feature/a2ui-assertions`.** No JSONL parser or custom assertion block is needed:
 
+```ruby
 # Inside your suite:
-evaluate :a2ui, using: ui_check
+evaluate :text, using: RubyLLM::Evaluations::Evaluators.exact_match
+question "Show the return policy",
+  expected_answer: "Returns within 30 days",
+  minimum_scores: { text: 1.0, a2ui: 1.0 },
+  metadata: { a2ui: { surfaces: { returns: {
+    catalog: :standard, root: "root",
+    components: { root: {
+      type: "Text", props: { text: { literalString: "Returns within 30 days" } }
+    } }
+  } } } }
 ```
 
-The evaluator rejects missing components, an empty matching set, or a wrong declared version before your check runs. Your block validates the schema and application contract; the gem does **not** certify A2UI compliance or render supplied UI. Payloads preserve their original JSON-compatible shape; JSON/JSONL strings are not automatically parsed.
+The built-in `a2ui` metric supports **A2UI 0.8**. It parses message objects, arrays, JSON, or JSONL across ordered response components; validates the bundled official catalog with `json_schemer`; and checks required props, types, enums, unknown fields, styles, roots, and standard component references. Malformed output, unsupported versions/catalogs, missing UI, and invalid earlier updates fail even when text is correct. Business assertions inspect the final live surfaces.
 
-Text is optional (`output: nil`). Components `nil` means unreported, `[]` means explicitly none. Put expected UI data in question metadata and bump suite `version` when validators change. `response_components` in response metadata is reserved for persistence.
+Each expected surface can assert `catalog`, `root`, and components by ID. Each component can assert `type` and `props`: hashes match recursively as subsets; arrays match exactly; missing properties differ from `nil`. Omit `metadata.a2ui` for protocol/catalog checks only. Props are wire values (including literal/path bindings), not values resolved by a renderer.
+
+Use your application’s catalog as an inline Hash or a local JSON file:
+
+```ruby
+evaluate :a2ui, using: RubyLLM::Evaluations::Evaluators.a2ui(
+  catalogs: { "example.org:shop-v1" => File.expand_path("catalogs/shop.json", __dir__) }
+)
+# Assert catalog: "example.org:shop-v1" in the question metadata.
+```
+
+Catalogs contain `components` and `styles` maps of JSON Schemas; a supplied `catalogId` must match the registered ID. Definitions are snapshotted at setup, and catalog content participates in baseline compatibility. Embedded schema references work offline; unresolved/external references are rejected at setup. Model-supplied catalog IDs never trigger network access. Changing assertion metadata also changes the fingerprint; bump suite `version` for scoring-code changes.
+
+Text is optional (`output: nil`). Components `nil` means unreported, `[]` means explicitly none. Original payloads stay unchanged in history. The evaluator does not render UI or implement client data-binding behavior. For other protocols, use `Evaluators.response_components(protocol: ..., version: ...) { |components, context| ... }`; that generic evaluator passes raw payloads to your block. `response_components` in response metadata is reserved for persistence.
 
 **Only for actual tools:** if an existing tool emits a response component, opt into capture inside that tool class:
 
@@ -221,7 +237,7 @@ The dashboard exposes filters, scores, baseline comparisons, case evidence, and 
 | [Semantic + actions](examples/semantic_actions_eval.rb) | Answer and tool correctness together. | Paid; opt-in |
 | [Context bloat](examples/context_bloat_eval.rb) | ~500 KB fixture, tool arguments, 4,096-byte tool-result budget. | Paid; opt-in |
 
-The bloat example measures **bytes**, not tokens or universal context-window fit. Scripted-provider tests prove transport, not model reasoning. Bundled RubyLLM adapters/judges target **1.x (1.14.1+)**; 2.x adapter compatibility is not claimed. Generic callables do not require RubyLLM.
+The bloat example measures **bytes**, not tokens or universal context-window fit. Scripted-provider tests prove transport, not model reasoning. Bundled RubyLLM adapters, judges, and optional tool capture target **1.x (1.14.1+)**; 2.x integration compatibility is not claimed. Native A2UI validation consumes `Response` data independently of RubyLLM.
 
 ## Safety
 
@@ -258,4 +274,4 @@ The script gates upload on tests, package checks, and installed-gem replay/persi
 
 </details>
 
-[MIT license](LICENSE) · [Changelog](CHANGELOG.md) · [RubyGems](https://rubygems.org/gems/ruby_llm-agent-evaluations)
+[MIT library license](LICENSE) · [Apache-2.0 A2UI schemas](lib/ruby_llm/evaluations/a2ui/assets/LICENSE) · [Changelog](CHANGELOG.md) · [RubyGems](https://rubygems.org/gems/ruby_llm-agent-evaluations)

@@ -180,6 +180,44 @@ class DatabasePortabilityTest < Minitest::Test
       end
     end
 
+    define_method("test_#{adapter}_native_a2ui_assertions_survive_history_and_regression") do
+      with_database(adapter) do |database_url|
+        E.migrate!
+        days = 30
+        agent = lambda do |_question|
+          E::Response.new(output: nil, components: [{ protocol: "a2ui", version: "0.8", payload: [
+            { surfaceUpdate: { surfaceId: "policy", components: [
+              { id: "root", component: { Text: { text: { literalString: "Returns within #{days} days" } } } }
+            ] } },
+            { beginRendering: { surfaceId: "policy", root: "root" } }
+          ] }])
+        end
+        definition = E.define("Portable native A2UI", agent: agent, agent_name: "PolicyAgent") do
+          question "render", minimum_scores: { a2ui: 1.0 }, metadata: { a2ui: { surfaces: { policy: {
+            catalog: :standard, root: "root",
+            components: { root: { type: "Text", props: { text: { literalString: "Returns within 30 days" } } } }
+          } } } }
+        end
+        baseline = E.run(definition)
+        assert_equal "passed", baseline.case_results.first.status
+        days = 7
+        current = E.run(definition)
+        reconnect(database_url)
+        reopened = E::Run.with_results.find(current.id)
+        assert_equal "failed", reopened.case_results.first.status
+        assert_nil reopened.case_results.first.output
+        assert_equal current.snapshot, reopened.snapshot
+        assert_equal baseline.id, reopened.previous.id
+        metric = reopened.case_results.first.metric_results.first
+        assert_equal 0.0, metric.score
+        refute metric.passed
+        assert_includes metric.reason, "literalString"
+        report = E::Report.new(reopened, baseline: reopened.previous)
+        assert report.comparison.fetch("regressed")
+        assert_includes report.to_html, "Returns within 7 days"
+      end
+    end
+
   end
 
   private
